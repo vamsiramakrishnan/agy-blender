@@ -537,6 +537,19 @@ def test_chapter_links_and_jump_to_land_on_the_chapters_rest_and_at_names_moment
         assert p.page.evaluate("location.hash") == "#how"
         p.page.evaluate("__site.jumpTo('detail')")
         p.page.wait_for_function(f"Math.abs(__site.progress() - {ids.index('detail') + REST}) < 0.01", timeout=8000)
+        # scrollAt is where on the page a story time is, for an effect of the page's own that must start with the
+        # film: setProgress goes exactly there. In the last chapter that is not its top plus the same share of its
+        # height: it runs on its height less the window. Run 6 started its last panel's lines by that sum (the
+        # library guide's earlier advice) and the card stood empty from 35 % to 64 % of the chapter.
+        y, top, height, window_h = p.page.evaluate(f"""(() => {{
+          const r = document.querySelector('[data-chapter="{ids[-1]}"]').getBoundingClientRect();
+          return [__site.scrollAt(__site.at('{ids[-1]}', 0.5)), r.top + scrollY, r.height, innerHeight]; }})()""")
+        p.page.evaluate(f"__site.setProgress(__site.at('{ids[-1]}', 0.5))")
+        assert p.page.evaluate("scrollY") == pytest.approx(y, abs=1)
+        assert y == pytest.approx(top + 0.5 * (height - window_h), abs=2) and y < top + 0.5 * height - 0.3 * window_h
+        assert p.page.evaluate("__site.scrollAt(__site.at('how', 0.25))") == pytest.approx(
+            p.page.evaluate("(() => { const r = document.querySelector('[data-chapter=\"how\"]').getBoundingClientRect(); "
+                            "return r.top + scrollY + 0.25 * r.height; })()"), abs=2)
         assert p.messages == [], p.messages
     finally:
         p.close()
@@ -1085,26 +1098,43 @@ def builds(tmp_path_factory) -> dict:
 
 
 @pytest.mark.browser
-def test_the_light_shows_a_props_form_and_the_ground_stays_the_pages(browser, bare) -> None:
+def test_the_light_shows_a_props_form_and_the_ground_is_lit_for_its_shadow(browser, bare) -> None:
     """The starter lights with run 2's key, rim and environment (stage.js, LIGHT): a blind judge preferred run 4's
-    site under this light to the dimmer one it was built with in six of six verdicts. The ground must not take that
-    light: its colour is divided by what it receives and it takes the environment at its own strength (groundLook),
-    so it still fades into the page. Measured at the first chapter, 1280 x 800: the stand-in's lit faces at a
-    luminance of 180 and its darker side at 115 (under the dimmer light 125 and 46); the floor far from the camera at
-    (28, 31, 35) against a page of (16, 18, 21), where with its colour divided alone it came out at (49, 50, 54)."""
+    site under this light to the dimmer one it was built with in six of six verdicts. The ground is lit scenery for
+    the shadows to fall on, not the page's own dark: run 6's site with its floor at 61 of 255 where it had been at 19
+    was preferred in five of six verdicts, and the floor at 61 to one at 91 in six of six
+    (benchmarks/results/round8/floor_compare/). It does not take the props' light (groundLook), so it stays where
+    --ground puts it, and the fog takes it to the page's colour at the horizon without a line.
+    Measured at the first chapter, 1280 x 800: the stand-in's lit faces at a luminance of 180 and its darker side at
+    115; the floor near the camera at 61 and round the hero's foot at 63, the hero's shadow there at 33; the top of the
+    picture at the page's 18, and no two neighbouring rows of ground more than one level apart. On the ground of runs
+    4 to 6 (#1a1d22) the floor was at 22 and the shadow 12 levels under it."""
+    luma = np.array([0.2126, 0.7152, 0.0722])
     p = Page(browser, bare)
     try:
         p.open()
         bg = p.page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()")
-        page = np.array([int(bg[i:i + 2], 16) for i in (1, 3, 5)])
+        page = np.array([int(bg[i:i + 2], 16) for i in (1, 3, 5)]) @ luma
         pic = p.at(0.0)
         h, w = pic.shape[:2]
-        far = np.median(pic[int(h * 0.30):int(h * 0.38), int(w * 0.05):int(w * 0.30)].reshape(-1, 3), axis=0)
-        assert np.abs(far - page).max() <= 18, (far, page)
+        lum = pic @ luma
+        beside = lum[:, int(w * 0.05):int(w * 0.30)]  # ground and sky beside the hero: nothing stands there
+        near = np.median(beside[int(h * 0.88):int(h * 0.98)])
+        assert 50 <= near <= 72 and near >= page + 35, (near, page)
+        rows = np.median(beside, axis=1)
+        assert abs(rows[:10].mean() - page) <= 6, (rows[:10], page)  # far away the ground has gone into the page
+        assert np.abs(np.diff(rows)).max() <= 3, np.abs(np.diff(rows)).max()  # and no horizon line on the way there
         x0, y0, x1, y1 = p.page.evaluate("__site.info().onScreen.hero.box")
-        lum = (pic @ np.array([0.2126, 0.7152, 0.0722]))[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
-        lit, shade = np.percentile(lum, 95), np.percentile(lum, 20)
+        hero = lum[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+        lit, shade = np.percentile(hero, 95), np.percentile(hero, 20)
         assert lit >= 160 and shade >= 90, (lit, shade)
+        # the hero's shadow shows on that ground: round its foot the darkest fiftieth is well under the floor
+        bw, bh = (x1 - x0) * w, (y1 - y0) * h
+        xa, ya = int(max(0, x0 * w - bw)), int(max(0, y1 * h - 0.35 * bh))
+        foot = lum[ya:int(min(h, y1 * h + 0.35 * bh)), xa:int(min(w, x1 * w + bw))].copy()
+        foot[:max(0, int(y1 * h) - ya), max(0, int(x0 * w) - xa):max(0, int(x1 * w) - xa)] = np.nan  # the hero itself
+        floor, shadow = np.nanmedian(foot), np.nanpercentile(foot, 2)
+        assert floor - shadow >= 20, (floor, shadow)
         assert p.messages == [], p.messages
     finally:
         p.close()

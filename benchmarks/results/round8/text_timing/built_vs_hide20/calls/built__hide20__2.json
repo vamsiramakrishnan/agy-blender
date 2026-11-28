@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "hide20",
+ "rep": 2,
+ "frames": [
+  "fefcd13ba712ee55",
+  "a6a374bdc463cd2d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Both sites share the same overlap in frame 5, but site 1 gives clean, unobstructed 3D transition views in frames 4 and 7 whereas site 2 shows an awkward near-invisible faded card in frame 7."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D press, anchor rack, and seven-lane gate machinery across frames 1 to 9 to visually trace how logs are compressed and routed."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the identical 3D models, lighting, shadows, and grid floor across all 9 frames."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 avoids the unreadable low-contrast card fade seen in frame 7 of site 2 while keeping crisp typography across frames 1, 2, 3, 5, 6, 8, and 9."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "While the two sites are nearly identical variants of the same build, site 1 handles scroll transitions cleanly in frames 4 and 7 without leaving illegible faded text on screen like site 2 does in frame 7."
+  }
+ }
+}

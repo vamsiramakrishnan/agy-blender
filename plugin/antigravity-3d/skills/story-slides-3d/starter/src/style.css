@@ -1,0 +1,87 @@
+/* style.css: a cinema frame. A slim strip with the title and the count, the picture, the caption and the controls
+   under it, all on the film's paper. The colours are the film's two inks (story.js uses the same two). */
+:root {
+  --paper: #0b0f17;
+  --ink: #efe4cb;
+  --muted: #9c978b;
+  --line: #232a36;
+  --serif: Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --caption-h: 7.6rem;      /* the caption's fixed height: the picture must not change size from beat to beat */
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body { font: 15px/1.5 var(--mono); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+h2 { font: italic 400 clamp(1.6rem, 2.6vw, 2.3rem)/1.1 var(--serif); margin: 0 0 0.35em; }
+p { margin: 0 0 0.3em; max-width: 64ch; }
+
+.strip { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; padding: 10px 16px; font-size: 12px; color: var(--muted); }
+.mark { color: var(--ink); letter-spacing: 0.3em; text-transform: uppercase; }
+.count { font-variant-numeric: tabular-nums; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* Article layout (no script, no WebGL, or before the film starts): the story reads top to bottom, notes as small
+   text after their beat's lines. Every rule that hides text hangs on .film-on, which main.js sets once WebGL works,
+   so a page whose script failed is still the whole article. */
+.picture, .controls, .loading { display: none; }
+.note { margin: 1rem 16px; color: var(--muted); }
+#story { max-width: 44rem; margin: 0 auto; padding: 1rem 16px 3rem; }
+#story section { margin-bottom: 2.2rem; }
+aside[data-notes] { font-size: 12px; color: var(--muted); margin: 0.2em 0 0.8em; }
+aside[data-notes]::before { content: "Note: "; }
+
+/* Film layout: strip, picture, then caption beside the controls (below them on a phone). The page does not scroll. */
+.film-on, .film-on body { height: 100%; overflow: hidden; }
+.film-on body {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) var(--caption-h);
+  grid-template-areas: "strip strip" "picture picture" "story controls";
+}
+.film-on .strip { grid-area: strip; }
+.film-on .picture { grid-area: picture; display: block; position: relative; min-height: 0; background: var(--paper); cursor: pointer; touch-action: manipulation; }
+.film-on #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.film-on .loading { display: grid; place-items: center; position: absolute; inset: 0; margin: 0; max-width: none; color: var(--muted); }
+.film-on .loading[hidden] { display: none; }
+.film-on #story { grid-area: story; max-width: none; margin: 0; padding: 14px 16px 0; overflow: hidden; border-top: 1px solid var(--line); }
+.film-on .controls { grid-area: controls; display: flex; gap: 6px; align-items: flex-start; padding: 14px 16px 0; border-top: 1px solid var(--line); }
+
+/* Only the current scene's title and the current beat's lines show; which ones is caption.js's .is-current. */
+.film-on #story section:not(.is-current), .film-on [data-beat]:not(.is-current) { display: none; }
+.film-on #story section { margin: 0; }
+.film-on aside[data-notes] { display: none; }
+/* The typed-in reveal: caption.js wraps each letter once in a span with its index (--i), and sets --shown on the
+   beat; a letter shows once its index is passed. Opacity, not removal: the line keeps its place as it types. */
+.film-on .ch { opacity: clamp(0, calc(var(--shown, 1e4) - var(--i)), 1); }
+
+/* A headline over the picture (data-place="over"): the same lines, large, lower left in the picture, at most a third
+   of its height. main.js gives the picture's box as --pic-left, --pic-bottom, --pic-w and --pic-h. */
+.film-on [data-beat][data-place="over"].is-current {
+  position: fixed; left: calc(var(--pic-left) + 0.05 * var(--pic-w)); bottom: calc(var(--pic-bottom) + 0.06 * var(--pic-h));
+  width: calc(0.62 * var(--pic-w)); max-height: calc(var(--pic-h) / 3); overflow: hidden; pointer-events: none;
+  font: italic 400 min(calc(0.055 * var(--pic-h)), calc(0.042 * var(--pic-w)))/1.15 var(--serif);
+  text-shadow: 0 0 0.5em var(--paper), 0 0 0.12em var(--paper);
+}
+.film-on [data-beat][data-place="over"] p { max-width: none; margin: 0 0 0.25em; }
+
+/* Speaker's notes: the key n toggles .notes-on on <html>; the current beat's note shows over the picture's top. */
+.film-on.notes-on [data-beat].is-current aside[data-notes] {
+  display: block; position: fixed; top: 44px; right: 16px; width: min(26rem, 80vw); margin: 0; padding: 10px 12px;
+  font-size: 13px; color: var(--ink); background: rgba(11, 15, 23, 0.88); border: 1px solid var(--line);
+}
+
+.controls button {
+  font: inherit; color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 3px;
+  padding: 8px 14px; cursor: pointer; min-width: 4.5rem;
+}
+.controls button:hover { border-color: var(--muted); }
+.controls button:disabled { color: var(--muted); cursor: default; border-color: transparent; }
+.controls button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+/* Phone: the controls under the caption, across the width; the caption a little taller for its wrapped lines. */
+@media (max-width: 700px) {
+  :root { --caption-h: 9.6rem; }
+  body { font-size: 14px; }
+  .film-on body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) var(--caption-h) auto; grid-template-areas: "strip" "picture" "story" "controls"; }
+  .film-on .controls { padding: 8px 16px 12px; justify-content: space-between; }
+  .film-on .controls button { flex: 1; }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "mid",
+ "second": "built",
+ "rep": 0,
+ "frames": [
+  "326c9038cfb7c6b3",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "In frame 4, the second site hides the text panel completely so the anchor rack on the left is unobstructed, whereas the first site leaves a dark translucent card blocking that 3D machine."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory metaphor across frames 1 to 9 to clearly illustrate token floods, the digest press, anchor racks, and seven host lanes."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature the identical well-crafted 3D scene with grounded dark-metal machinery, edge highlights, and shadows across all nine frames."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "In frames 4 and 7, the second site cleanly removes the text overlay during camera transitions, avoiding the dim, unreadable ghosted text cards visible in frames 4 and 7 of the first site."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While both sites share the same strong 3D visualization and design, the second site handles scroll transitions much more cleanly by hiding text cards in frames 4 and 7 instead of leaving murky, unreadable boxes over the 3D scene."
+  }
+ }
+}

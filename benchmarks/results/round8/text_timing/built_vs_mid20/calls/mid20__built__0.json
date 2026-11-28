@@ -1,0 +1,33 @@
+{
+ "first": "mid20",
+ "second": "built",
+ "rep": 0,
+ "frames": [
+  "6b8064cf28fbdf89",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 clears the text card during camera transitions in frames 4 and 7 so the 3D machinery is completely unobstructed, whereas Site 1's text card overlaps and clips into the 3D Anchor Rack in frames 4 and 5."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory assembly\u2014pressing raw token blocks into digests, routing handles to an anchor rack, and gating seven host lanes across frames 1 through 9\u2014to clearly illustrate Straitjacket's architecture."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites share identical, well-crafted 3D industrial machinery, beveled edges, grounded shadows, and gridded floor shaders across all frames 1 to 9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "While typography and card styling are identical, Site 2 paces its scroll layout better in frames 4 and 7 by hiding the left panel during camera travel, avoiding the awkward overlap and faded stats seen in Site 1's frame 4."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers the exact same strong 3D visual explanation and craft as Site 1, but with cleaner scroll choreography that gives the 3D scene breathing room during transitions instead of letting UI cards collide with the models."
+  }
+ }
+}

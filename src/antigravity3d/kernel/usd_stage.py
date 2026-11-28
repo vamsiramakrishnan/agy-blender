@@ -494,6 +494,7 @@ class StageManager:
                 keep_layout=self.keep_layout,
                 run=read_run(prim, m),  # the part's run, carried as its collider proxy is (compile_ir._author_run)
                 grain=read_grain(prim, m),
+                double_sided=bool(mesh.GetDoubleSidedAttr().Get()),
             )
             out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out

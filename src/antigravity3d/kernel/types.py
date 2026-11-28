@@ -38,6 +38,10 @@ class MeshData:
     # The way the part's wood runs as its author said it (``grain=``), a unit vector in world space; None: the painter
     # chooses (surface_frame.part_grain). Whoever turns ``points`` turns this too.
     grain: np.ndarray | None = None
+    # Whether the part is drawn from both sides (USD keeps that on the geometry): set by the stage manager, as the
+    # package reads it for the part's glTF material, which a double-sided part does not share with a single-sided one
+    # (fast_ops.draw_key).
+    double_sided: bool = False
 
 
 @dataclass(frozen=True)

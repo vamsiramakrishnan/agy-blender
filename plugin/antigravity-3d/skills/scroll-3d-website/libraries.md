@@ -74,8 +74,9 @@ key.shadow.camera.left = key.shadow.camera.bottom = -6;
 key.shadow.camera.right = key.shadow.camera.top = 6;
 scene.add(key);
 
-// the ground keeps the page's ground colour under that light: the starter's groundLook (the light section below)
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#1a1d22'), roughness: 0.95 }));
+// a lit ground for the slabs' shadows to fall on, not washed out by their light: the starter's colour through its
+// groundLook (the light section below)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#474e5a'), roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -169,13 +170,24 @@ the colour is compressed towards white. At F = 2 that is every channel above abo
   tag, a status dot) is unlit: `MeshBasicMaterial({ color, toneMapped: false })` gives #F0B429, and `emissive` on a
   black `color` #EDB33B. Why: a block drawn unlit has no form. Run 5 drew the coloured blocks of its lanes that
   way, on this guide's earlier advice, and the blind judge calls them "flat unshaded blocks on the floor".
-- The ground comes out as the page's ground colour whatever the props are lit with, so that it fades into the page:
-  give a ground material the starter's `groundLook(scene, colour)` (stage.js). It divides the colour by what a face
-  turned up receives and has the ground take the environment at 0.25. Both matter: most of what a dark floor shows
-  is the environment's reflection in it, which its colour does not scale. Measured: #15181D as a plain material
-  under the starter's light comes out #191E25, with `groundLook` #0B0F16 (the tone mapper's toe takes out most of
-  the darkest channel; choose the ground's colour by its swatch). A floor shader of your own (the section on
-  custom shader materials) takes the same two options.
+- The ground is lit scenery for shadows to fall on, not one of the page's surfaces: keep the starter's `--ground`
+  (#474e5a, which shows at about 60 of 255 near the camera on a page at 18), or a colour of your own that shows
+  between 50 and 70 there, and let the fog take it to the page's colour at the horizon. Do not give it the design's
+  background or card colour. Why: a shadow cannot darken a floor that is already as dark as the page, so the props
+  float. Run 6's floor was the design's #15181D, which shows at 19; the same site rebuilt with the floor at 61 and
+  nothing else changed was preferred by a blind judge in five of six verdicts ("the near-black floor swallows the
+  shadows and leaves the dark navy machines floating"), and the floor at 61 was preferred to one at 91 in six of
+  six, where the labels and cards read worse; run 4's site, asked the same way, gave the same five of six
+  (`benchmarks/results/round8/floor_compare/`). Runs 4, 5 and 6 all had the dark floor, because this guide asked
+  for a ground in the page's colour.
+- The ground must not be washed out by the light the props need: give a ground material the starter's
+  `groundLook(scene, colour)` (stage.js). It divides the colour by what a face turned up receives and has the
+  ground take the environment at 0.25. Both matter: most of what a dark floor shows is the environment's reflection
+  in it, which its colour does not scale. A ground does not show as its hex either: the tone mapper's toe takes up
+  to 0.04 (linear) out of a dark colour. Measured from straight above: #474e5a comes out #566071 as a plain
+  material and #323b49 with `groundLook`; #15181D comes out #0B0F16, darker than the page it was meant to match.
+  Choose the ground by its swatch. A floor shader of your own (the section on custom shader materials) takes the
+  same two options.
 - Do not add light. Run 3 added a fill light to a key of 2.7 and a rim and raised the environment to 0.95, F about
   2.8, on a ground that took it all: its #15181D floor came out #272B32 and its amber #FBC978. And do not take it
   away to fix a colour: under the dimmer light the same dark steel came out #0B1420, thirteen levels from the floor
@@ -221,8 +233,10 @@ const seen = (options) => onScreen(new THREE.MeshStandardMaterial(options));
 // The ground as the starter's groundLook() makes it: the colour over what a face turned up receives, the
 // environment at 0.25.
 const groundLight = 0.28 * key.intensity + 1.84 * 0.25 + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
-const floor = seen({ color: new THREE.Color('#15181d').multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
-const floorPlain = seen({ color: '#15181d', roughness: 0.95 });
+const ground = (hex) => seen({ color: new THREE.Color(hex).multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
+const floor = ground('#474e5a'); // the starter's --ground: a lit slate
+const floorPlain = seen({ color: '#474e5a', roughness: 0.95 });
+const floorDark = ground('#15181d'); // run 6's ground, the design's card colour: darker on screen than its page
 const amberLit = seen({ color: '#f0b429', roughness: 0.6 });
 // The same amber over what a face turned up receives, as the starter's lit() gives it: the colour again, with its form.
 const propLight = 0.28 * key.intensity + 1.84 * scene.environmentIntensity + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
@@ -244,9 +258,9 @@ scene.add(new THREE.DirectionalLight('#ffffff', 0.65));
 scene.environmentIntensity = 0.95;
 const floorRun3 = seen({ color: '#15181d', roughness: 0.95 });
 const amberRun3 = seen({ color: '#f0b429', roughness: 0.6 });
-document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
+document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, floorDark, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
 ```
-<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && Math.max(...c(s.floor)) < 30 && c(s.floorPlain)[0] > 1.8 * c(s.floor)[0] && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
+<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && near(s.floor, '#323b49', 10) && c(s.floorPlain)[0] > 1.5 * c(s.floor)[0] && Math.max(...c(s.floorDark)) < 30 && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
 
 ## GSAP 3.15 with ScrollTrigger: page effects tied to scroll
 
@@ -261,32 +275,53 @@ Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame. 
 from a resize handler of your own: ScrollTrigger refreshes on resize by itself, and on a touch-only device it skips a
 resize that keeps the width and changes the height by less than a quarter, which is the address bar sliding (gsap
 3.15.1, `_onResize` in `ScrollTrigger.js`). Run 2 refreshed on every resize and undid that. Call it only after a
-layout change it cannot see, such as content your script added. The starter shows a chapter's panel only once its
-camera has arrived (`MOVE` of the chapter past its top, `src/shots.js`): a stagger that plays before then plays on a
-hidden panel, so on the starter start it there, `start: () => 'top+=' + MOVE * chapter.offsetHeight + ' top'`.
+layout change it cannot see, such as content your script added.
+
+Text a visitor reads is never tied to the scroll position, and never left part way: wherever the visitor stops, a
+line is whole or not there. Bring a panel's lines in on time, once, when the panel comes up, as the example does.
+Why: run 6 scrubbed each panel's lines over the 0.16 of the chapter that follows the camera's arrival, as this guide
+then showed, so a visitor who stopped there read a half-faded card; rebuilt so that the stretch fell on a
+photographed step, the site lost to itself in six of six blind verdicts, every one naming the faded card
+(`benchmarks/results/round8/text_timing/`). The starter brings a panel up where its camera arrives, `MOVE` of the
+way into its chapter in story time (the first panel is up from the start), and `window.__site.scrollAt(T)` is the
+place on the page of a story time: start there. Not at the chapter's top plus a share of its height: the last chapter runs on its height less the window
+(`src/chapters.js`), and run 6's last card, started by that sum, stood empty from 35 % to 64 % of its chapter and was
+not whole before 95 %, while the menu's link to it lands at 70 %.
 
 ```js
 // example: gsap-scrolltrigger
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
+import { MOVE } from './src/shots.js';
 
 gsap.registerPlugin(ScrollTrigger);
-const lenis = new Lenis(); // smoothing is off by itself under reduced motion (respectReducedMotion)
+const lenis = new Lenis({ allowNestedScroll: true }); // smoothing is off by itself under reduced motion (respectReducedMotion)
 lenis.on('scroll', ScrollTrigger.update);
 gsap.ticker.add((seconds) => lenis.raf(seconds * 1000));
 gsap.ticker.lagSmoothing(0);
 
-// Inside each chapter's panel the heading and paragraphs come in one after another as the chapter arrives, scrubbed
-// to the scroll (the starter cross-fades whole panels). The text itself is never changed: check_site reads it.
-for (const chapter of document.querySelectorAll('[data-chapter]')) {
-  gsap.from(chapter.querySelectorAll('.panel > *'), {
-    opacity: 0, y: 24, ease: 'none', stagger: 0.3,
-    scrollTrigger: { trigger: chapter, start: 'top 85%', end: 'top 25%', scrub: true },
+await import('./src/main.js'); // the starter, unchanged
+const site = window.__site;
+site.scrollWith = (y) => lenis.scrollTo(y);
+await site.ready;
+
+// The lines of each chapter's panel come in one after another when the panel comes up: in time, once, and from then
+// on they are whole wherever the visitor stops. Only in the film, and not under reduced motion. The text itself is
+// never changed: check_site reads it.
+if (site.mode === 'webgl') gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
+  document.querySelectorAll('[data-chapter]').forEach((chapter, i) => {
+    gsap.from(chapter.querySelectorAll('.panel > *'), {
+      opacity: 0, y: 16, duration: 0.6, ease: 'power2.out', stagger: 0.08,
+      // the first panel is up from the start and plays at once; the others start where their camera arrives, a pixel
+      // early so that a visitor resting exactly there has passed it
+      scrollTrigger: i ? { start: () => site.scrollAt(site.at(chapter.dataset.chapter, MOVE)) - 1, end: 'max', once: true } : null,
+    });
   });
-}
+});
 ```
-<!-- check: js (async () => { const wait = () => new Promise((r) => setTimeout(r, 1500)), kids = [...document.querySelectorAll('#how .panel > *')], seen = () => kids.map((el) => +getComputedStyle(el).opacity), top = document.getElementById('how').getBoundingClientRect().top + scrollY; scrollTo(0, top - innerHeight * 0.55); await wait(); const mid = seen(); scrollTo(0, top - innerHeight * 0.1); await wait(); const end = seen(); return kids.length >= 2 && mid[0] > mid[kids.length - 1] + 0.2 && end.every((v) => v > 0.99); })() -->
+<!-- check: picture -->
+<!-- check: js (async () => { const site = window.__site, wait = (ms) => new Promise((r) => setTimeout(r, ms)), lines = (id) => [...document.querySelectorAll('[data-chapter="' + id + '"] .panel > *')].map((el) => +getComputedStyle(el).opacity), whole = (v) => v.length >= 2 && v.every((o) => o > 0.99), ids = site.chapters().map((c) => c.id), last = ids[ids.length - 1]; await wait(1500); const first = lines(ids[0]), waiting = lines(last); site.setProgress(site.at(last, 0.36)); let oneByOne = false; for (const t0 = performance.now(); performance.now() - t0 < 1500;) { await new Promise(requestAnimationFrame); const v = lines(last); oneByOne = oneByOne || v[0] > v[v.length - 1] + 0.15; } const rests = []; for (const [id, local] of [[last, 0.36], [last, 0.7], ['how', 0.36], ['how', 0.5], ['detail', 0.4], [ids[0], 0.5]]) { site.setProgress(site.at(id, local)); await wait(1200); rests.push(lines(id)); } return whole(first) && waiting.every((o) => o < 0.01) && oneByOne && rests.every(whole); })() -->
 
 ## Lenis 1.3: smooth scrolling
 

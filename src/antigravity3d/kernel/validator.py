@@ -14,7 +14,7 @@ import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
 from antigravity3d.kernel import fbx_read, provenance
-from antigravity3d.kernel.fast_ops import TEXEL_TARGET_WARN_FRACTION, HullLimit, Issue, hull_plane_count
+from antigravity3d.kernel.fast_ops import TEXEL_TARGET_WARN_FRACTION, HullLimit, Issue, hull_plane_count, shipped_draw_calls
 from antigravity3d.kernel.types import MeshData, bounds_issue, gltf_world_bounds
 from antigravity3d.state import EngineBudget, TargetEngine
 
@@ -390,7 +390,7 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
     total = sum(len(m.triangles) for m in meshes)
     if total > budget.max_tris:
         add("tri_budget", "critical", None, f"{total} tris > {budget.max_tris}")
-    draws = len({m.material_id for m in meshes})
+    draws = shipped_draw_calls(meshes, budget)  # what ships: opaque materials that share the atlas are one
     if draws > budget.max_draw_calls:
         add("draw_call_budget", "critical", None, f"{draws} draw calls > {budget.max_draw_calls}")
     if rules.one_material_per_part and draws > 1:

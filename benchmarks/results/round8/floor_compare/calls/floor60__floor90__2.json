@@ -1,0 +1,33 @@
+{
+ "first": "floor60",
+ "second": "floor90",
+ "rep": 2,
+ "frames": [
+  "4309143d855e99e2",
+  "781f83bd866b4842"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sets of frames 1 through 9 show the exact same website and identical camera compositions across every scroll step."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Across frames 1 to 9, both sites identically visualize the token flood, digest press, anchor rack, and host gates."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Frames 1 through 9 in both sets render identical 3D machinery, materials, lighting, and shadows on the grid floor."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Every frame from 1 to 9 features the exact same typography, left-aligned dark cards, and top navigation bar in both submissions."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Both submissions are pixel-for-pixel identical across all nine frames, so site 1 is selected arbitrarily as the schema requires a non-tie overall winner."
+  }
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "mid",
+ "second": "built",
+ "rep": 2,
+ "frames": [
+  "326c9038cfb7c6b3",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "In frame 4, the second site clears the left-hand card during the camera transition so the anchor rack is completely visible, whereas the first site leaves a faded card blocking the 3D machine."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D mechanical assembly\u2014showing token slabs in frame 3, the digest press in frame 5, the anchor rack in frame 6, and seven host lanes in frame 8\u2014to clearly illustrate Straitjacket's architecture."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the identical beveled, grounded 3D machinery, shadows, and grid floor across all frames (frames 1\u20139)."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "In frames 4 and 7, the second site cleanly hides transitional text cards rather than displaying low-contrast, half-faded cards that obscure the 3D view like on the first site."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While both sites share the same clear 3D visual metaphor and craft, the second site handles scroll transitions cleanly in frames 4 and 7 without semi-transparent text cards obscuring the 3D machinery or hurting legibility."
+  }
+ }
+}

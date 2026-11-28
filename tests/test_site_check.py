@@ -329,6 +329,8 @@ def test_a_slow_first_frame_after_a_jump_is_waited_for_and_the_picture_is_the_ar
     steps = {round(s.share, 2): s for s in r.visits["desktop"].steps}
     end = steps[1.0]
     assert end.motion == "still" and 4.3 < end.settle_s < sc.SETTLE_HARD_S, (end.motion, end.settle_s)
+    # the wait for the page's first frame there is no motion of the page: once drawn, the picture did not go on gliding
+    assert end.changing_s < sc.GLIDE_S, end.changing_s
     px = np.asarray(Image.open(end.frame).convert("RGB")).astype(int)[140, 190]  # inside both panels' box
     assert px[1] > px[0] + 80, f"the last frame shows the first panel still: {px.tolist()}"
     back = np.asarray(Image.open(steps[0.5].frame).convert("RGB")).astype(int)[140, 190]
@@ -1471,6 +1473,249 @@ def test_the_pass_between_the_steps_keeps_to_its_allowance_on_a_slow_page(tmp_pa
     assert f"read at {len(d.between)} of 6 positions between the steps" in r.text()
 
 
+# --------------------------------------------------------------------------- chapter text faded in a card that is up
+
+# One chapter's card over the scene, up from 55 % of the scroll (hidden before, its lines at 0 with it). MODE says
+# how its three lines come when it is up:
+#   'instant': whole at once;
+#   'scrub':   tied to the scroll position, line by line from 55 % to 90 % (run 6's GSAP scrub), so a visitor who
+#              stops at 62 % or 75 % reads a card part way; three photographed steps (0, 50, 100 %) never see it;
+#   'tween':   a JS tween of 0.8 s per line, staggered by 0.1 s, started when the card comes up, setting inline styles
+#              every frame (the plugin's guide's GSAP entrance, made slower: a read 100 ms after a jump sees it mid-way);
+#   'css':     a CSS transition of 0.9 s started when the card comes up (longer than the 0.6 s the pass between the
+#              steps waits for transitions);
+#   'dim':     at 0.6 everywhere the card is up, by design.
+# HOOK: whether the page gives window.__site.info() (without it the check reads at its photographed steps only);
+# with 'scrub' and no hook the stretch is moved to hold the step at 50 % (card up from 45 %).
+_FADED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A chapter card</title>
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
+.card{position:fixed;left:5vw;top:15vh;width:30vw;z-index:1;padding:1rem;background:rgba(16,18,21,0.82);opacity:0}
+.up .card{opacity:1}
+.css .card p,.css .card h2{transition:opacity 0.9s linear;opacity:0}.css.up .card p,.css.up .card h2{opacity:1}</style>
+</head><body><canvas id="c"></canvas>
+<section data-chapter="press"><div class="card">
+<h2>Addresses that survive edits</h2>
+<p>Bare line numbers drift silently when a file changes; anchored addresses follow moved content.</p>
+<p>Rewritten spans are refused instead of being quietly patched in the wrong place.</p>
+</div></section>
+<div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const MODE = 'scrub', HOOK = true;
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.85, 0.55, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+const root = document.documentElement, lines = [...document.querySelectorAll('.card > *')];
+root.classList.toggle('css', MODE === 'css');
+const from = MODE === 'scrub' && !HOOK ? 0.45 : 0.55;
+const share = () => scrollY / Math.max(1, root.scrollHeight - innerHeight);
+const clamp = (x) => Math.min(1, Math.max(0, x));
+let up = null, tween = 0;
+const play = () => {  // a timed entrance, as GSAP plays one: inline opacity set every frame
+  const id = ++tween, t0 = performance.now();
+  const frame = () => {
+    if (id !== tween) return;
+    const s = (performance.now() - t0) / 1000;
+    lines.forEach((el, i) => { el.style.opacity = String(clamp((s - 0.1 * i) / 0.8)); });
+    if (s < 0.8 + 0.1 * lines.length) requestAnimationFrame(frame);
+  };
+  frame();
+};
+const update = () => {
+  const t = share(), now = t >= from - 1e-3;
+  if (now !== up) {
+    up = now;
+    root.classList.toggle('up', up);
+    if (MODE === 'tween') { tween++; lines.forEach((el) => { el.style.opacity = '0'; }); if (up) play(); }
+  }
+  if (MODE === 'instant' || MODE === 'dim') lines.forEach((el) => { el.style.opacity = up ? (MODE === 'dim' ? '0.6' : '1') : '0'; });
+  if (MODE === 'scrub') lines.forEach((el, i) => { el.style.opacity = String(clamp((t - from - 0.1 * i) / 0.15)); });
+};
+addEventListener('scroll', update);
+update();
+if (HOOK) window.__site = { info: () => ({ onScreen: { press: { box: [0.45, 0.3, 0.75, 0.7], kind: 'prop', subject: true } } }) };
+</script></body></html>
+"""
+
+
+def _faded_site(tmp_path: Path, mode: str, hook: bool = True) -> Path:
+    root = tmp_path / f"{mode}{'' if hook else '-nohook'}"
+    root.mkdir(parents=True)
+    (root / "index.html").write_text(_FADED_PAGE.replace("const MODE = 'scrub', HOOK = true;",
+                                                         f"const MODE = '{mode}', HOOK = {str(hook).lower()};"))
+    shutil.copy(FIX / "gl.js", root / "gl.js")
+    return root
+
+
+def _faded_lines(r: sc.SiteReport) -> list[str]:
+    return [n for n in r.noticed() if "is faded or missing in its card" in n]
+
+
+@pytest.mark.browser
+def test_card_text_tied_to_the_scroll_is_named_with_its_stretch_between_the_steps(tmp_path):
+    """Run 6's fault: the card is up from 55 % and its lines follow the scroll to 90 %. The three photographed steps (0,
+    50, 100 %) see the card hidden, then whole; the positions read between them find the stretch (62 % and 75 %), and
+    the text pass, at every sixteenth of the scroll, gives its ends (56 % and 81 %), at both sizes."""
+    r = sc.check_site(str(_faded_site(tmp_path, "scrub")), out_dir=tmp_path / "out", steps=3,
+                      sizes=("desktop", "phone"), variants=())
+    found = _faded_lines(r)
+    assert len(found) == 2, (found, r.noticed())
+    desk, phone = found
+    assert desk.startswith("Desktop: the text of chapter 'press' is faded or missing in its card from 56% to 81% of "
+                           "the scroll (at 56%: "), desk
+    assert phone.startswith("Phone: the text of chapter 'press'"), phone
+    assert desk.endswith(sc.FADED_SEEN + sc.FADED_FIX) and phone.endswith(sc.FADED_SEEN), found
+    assert not r.broken()
+    d = r.visits["desktop"]
+    assert all(s.faded == [] for s in d.steps), [s.faded for s in d.steps]  # read, and whole or hidden there
+    hit = {round(s.share, 3): s.faded for s in d.between if s.faded}
+    assert set(hit) == {0.625, 0.75}, hit
+    assert hit[0.625][0]["faded"] == hit[0.625][0]["total"] > sc.FADED_CHARS and hit[0.625][0]["low"] <= 0.01, hit
+    assert {round(s.share, 4) for s in d.text_reads if s.faded} == {0.5625, 0.6875, 0.8125}, d.text_reads
+    assert len(d.text_reads) == 8 and "The chapter text alone read at 8 more positions" in r.text()
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert [s["faded"] for s in record["visits"]["desktop"]["between"] if s["faded"]][0][0]["group"] == "press"
+    assert len(record["visits"]["desktop"]["text_reads"]) == 8
+
+
+@pytest.mark.browser
+def test_card_text_tied_to_the_scroll_at_a_step_is_named_on_a_page_without_the_hook(tmp_path):
+    """Without window.__site.info() no position between the steps is read; the faded card at the step at 50 % is."""
+    r = run(_faded_site(tmp_path, "scrub", hook=False), tmp_path)
+    assert r.visits["desktop"].between_planned == 0
+    found = _faded_lines(r)
+    assert len(found) == 1 and found[0].startswith(
+        "Desktop: the text of chapter 'press' is faded or missing in its card at step 2 of 3 (50%) (at 50%: "), found
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("mode", ["tween", "css", "instant", "dim"])
+def test_card_text_brought_in_on_time_or_dim_by_design_is_not_named(tmp_path, mode):
+    """The false-positive guard. A timed entrance played when the card comes up (a JS tween, a CSS transition) is still
+    playing when a position is first read; the read waits for the page to come to rest and never reports it. Text at
+    0.6 wherever its card is up is dim by design. Everywhere the card is down (opacity 0, before 55 %) its lines are at 0
+    with it: a card that is not up is no fault."""
+    r = sc.check_site(str(_faded_site(tmp_path, mode)), out_dir=tmp_path / "out", steps=3, sizes=("desktop",),
+                      variants=())
+    d = r.visits["desktop"]
+    at = sc._text_positions(d)
+    assert d.between and d.text_reads and all(s.faded is not None for s in at), [(s.share, s.faded) for s in at]
+    assert not _faded_lines(r) and all(s.faded == [] for s in at), r.noticed()
+
+
+@pytest.mark.browser
+def test_without_the_wait_for_rest_the_timed_entrance_would_be_caught_mid_way(tmp_path):
+    """What the guard above rests on: the card is shown whole (the tween played out), left, and come back to; read at
+    once, the probe sees the tween part way and waits for it to end, and a read that did not wait would report it."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = _faded_site(tmp_path, "tween")
+    careless = "if (restless(items)) {"
+    assert careless in sc._probe_script(False)
+
+    async def go(script: str) -> dict:
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 1440, "height": 900})
+                await page.add_init_script(script)
+                await page.goto(srv.url)
+                await page.wait_for_function("window.__agySite && document.documentElement.scrollHeight > innerHeight")
+                go_to = "async (t) => { const m = window.__agySite.geometry().max; window.__agySite.scrollTo(m * t); }"
+                await page.evaluate(go_to, 1.0)
+                await page.wait_for_timeout(2000)
+                await page.evaluate("window.__agySite.readText()")
+                await page.evaluate(go_to, 0.4)
+                await page.evaluate("window.__agySite.readText()")
+                await page.evaluate(go_to, 0.75)
+                got = await page.evaluate("window.__agySite.readText()")
+                got["report"] = await page.evaluate("window.__agySite.fadedReport()")
+                await b.close()
+                return got
+        finally:
+            srv.close()
+
+    waited = asyncio.run(go(sc._probe_script(False)))
+    assert waited["settled"] and waited["waited_ms"] >= 300, waited
+    assert all(r["groups"] == [] for r in waited["report"]["reads"]), waited
+    hasty = asyncio.run(go(sc._probe_script(False).replace(careless, "if (false) {")))
+    last = hasty["report"]["reads"][-1]["groups"]
+    assert hasty["waited_ms"] < 100 and last and last[0]["group"] == "press" and sc._faded_counts(last[0]), hasty
+
+
+def test_faded_text_is_counted_per_chapter_merged_into_stretches_and_said_once_per_answer(tmp_path):
+    """The aggregation and the wording, without a browser. A position counts where FADED_CHARS or more of a chapter's
+    characters are faded and they are a quarter of its text in the window; neighbouring positions read form one
+    stretch; a position not read does not end one; the cause and the fix are said once per answer."""
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+
+    def g(name: str, faded: int, total: int = 200, low: float = 0.01) -> dict:
+        return {"kind": "chapter", "group": name, "faded": faded, "whole": total - faded, "total": total, "low": low}
+
+    def visit(name: str) -> sc.Visit:
+        v = sc.Visit(name, loaded=True, load_s=1.0)
+        v.steps = [sc.Step(i, i / 2, 0, faded=[]) for i in range(3)]
+        rows = {0.125: [g("intro", 19)],                     # under FADED_CHARS
+                0.25: [g("intro", 40, total=400)],           # under a quarter of the text in the window
+                0.625: [g("start", 150, low=0.05)], 0.6875: None,   # not read: the stretch goes on
+                0.75: [g("start", 180), g("flood", 30, total=100, low=0.4)], 0.875: [g("start", 60)]}
+        v.between = [sc.Step(-1, s, 0, between=True, faded=f) for s, f in rows.items()]
+        return v
+
+    rep.visits = {"desktop": visit("desktop"), "phone": visit("phone")}
+    lines = [n for n in rep.noticed() if "faded or missing" in n]
+    assert lines == [
+        "Desktop: the text of chapter 'start' is faded or missing in its card from 62% to 88% of the scroll (at 75%: "
+        "180 of its 200 characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who "
+        "stops there reads part of a card. Text tied to the scroll position does this; bring it in on time when the "
+        "card comes up (the skill's libraries.md, the GSAP section).",
+        "Desktop: the text of chapter 'flood' is faded or missing in its card at 75% of the scroll (at 75%: 30 of its "
+        "100 characters there faded or missing, the faintest at opacity 0.40, the card up). A visitor who stops there "
+        "reads part of a card.",
+        "Phone: the text of chapter 'start' is faded or missing in its card from 62% to 88% of the scroll (at 75%: "
+        "180 of its 200 characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who "
+        "stops there reads part of a card.",
+        "Phone: the text of chapter 'flood' is faded or missing in its card at 75% of the scroll (at 75%: 30 of its "
+        "100 characters there faded or missing, the faintest at opacity 0.40, the card up). A visitor who stops there "
+        "reads part of a card."], lines
+    # a position read with nothing faded between two that have it splits the stretch
+    rep.visits["desktop"].between[3].faded = []
+    assert "from 62% to 62%" not in rep.noticed()[0] and rep.noticed()[0].startswith(
+        "Desktop: the text of chapter 'start' is faded or missing in its card at 62% and from 75% to 88% of the scroll")
+    # at the photographed steps only, the steps are named; the reduced-motion and no-WebGL visits are never read
+    rep.visits = {"desktop": sc.Visit("desktop", loaded=True, steps=[sc.Step(0, 0.0, 0, faded=[]), sc.Step(2, 1.0, 0, faded=[]),
+                                                                      sc.Step(1, 0.5, 0, faded=[g("x", 90)])]),
+                  "reduced": sc.Visit("reduced", steps=[sc.Step(0, 0.5, 0, faded=[g("x", 90)])])}
+    assert [n for n in rep.noticed() if "faded" in n] == [
+        "Desktop: the text of chapter 'x' is faded or missing in its card at step 2 of 3 (50%) (at 50%: 90 of its 200 "
+        "characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who stops there "
+        "reads part of a card. Text tied to the scroll position does this; bring it in on time when the card comes "
+        "up (the skill's libraries.md, the GSAP section)."]
+    assert not rep.broken()
+    # what the page gives back is checked again
+    assert sc._faded_group({"kind": "chapter", "group": "a", "faded": 5, "whole": 1, "total": 9, "low": 0.2}) == {
+        "kind": "chapter", "group": "a", "faded": 5, "whole": 1, "total": 9, "low": 0.2}
+    for bad in ({"kind": "x"}, {"kind": "page", "faded": "9", "whole": 0, "total": 0, "low": 0},
+                {"kind": "page", "faded": 1, "whole": 0, "total": 1, "low": 7}, None):
+        assert sc._faded_group(bad) is None
+    # the text pass reads where nothing has been read, coarse to fine, each level in the order of the scroll: at 9
+    # steps whose 24 positions between were all read, the 32 sixty-fourths left
+    done = [i / 8 for i in range(9)] + [x for lv in sc.between_levels(9) for x in lv]
+    levels = sc.text_levels(9, done)
+    assert [len(lv) for lv in levels] == [32] and levels[0] == sorted(levels[0]) and not set(levels[0]) & set(done)
+    assert sc.text_levels(3, [0.0, 0.5, 1.0]) == [[0.25, 0.75], [0.125, 0.375, 0.625, 0.875],
+                                                  [k / 16 for k in range(1, 16, 2)]]
+
+
 # --------------------------------------------------------------------------- the first wheel notch
 
 def _png(a: np.ndarray) -> bytes:
@@ -1568,3 +1813,384 @@ def test_text_that_scrolls_with_the_page_answers_the_first_notch_and_a_restless_
     assert restless.visits["desktop"].first_notch in ({"px": 120, "motion": "ambient"}, {"px": 120, "motion": "moving"})
     assert not [x for x in restless.noticed() if "first scroll" in x], restless.noticed()
     assert "was not measured: the top of the page keeps changing by itself" in restless.text(), restless.text()
+
+
+def test_reduce_motion_is_said_to_glide_by_how_long_the_picture_went_on_changing_not_by_the_wait_for_its_frame(tmp_path):
+    """Run 6's page rests in its first frame under reduce motion (measured alone: no frame differs from the one before).
+    The check, drawing four visits at once in software, waited 9.5 s for that frame and reported the wait as the
+    page's motion: "after a scroll the picture still takes 9.5 s to come to rest (without the setting 2.2 s)"."""
+    rep = _report(tmp_path)
+    r, d = rep.visits["reduced"], rep.visits["desktop"]
+    r.probe, r.idle = {"reducedMotionQueried": True, "reducedMotionCss": True}, {"changed": False}
+    r.frame = str(tmp_path / "reduced.jpg")
+    d.steps[4].settle_s, d.steps[4].changing_s = 2.2, 1.1
+    r.steps = [sc.Step(0, 0.5, 400, settle_s=9.5, changing_s=0.0)]      # a long wait, then one frame that stays
+    line, handled = rep.reduced_line()
+    assert handled and "changing" not in line and "9.5" not in line, line
+    r.steps = [sc.Step(0, 0.5, 400, settle_s=2.0, changing_s=1.4)]      # smooth scrolling left on: it glides
+    line, handled = rep.reduced_line()
+    assert "still goes on changing for 1.4 s once it has drawn at the new place (without the setting 1.1 s)" in line, line
+
+
+
+# --------------------------------------------------------------------------- a film (window.__story)
+#
+# A small film made to the story-film contract (CONTRACT.md of round 9: the HTML holds the story, window.__story steps
+# it): three scenes and five beats, a WebGL picture that draws a different block per beat, moved by the beat's progress
+# p and coloured by ambient time t, its captions the beats' own <p> in the HTML, a headline over the picture
+# (data-place="over") and a speaker's note (<aside data-notes>, never a line). FAULT puts one fault in it:
+#   'same'    the second beat of 'tower' draws what its first does;
+#   'empty'   the first beat of 'tower' draws nothing but the background;
+#   'noline'  the first beat of 'sea' has no <p> (only its note); 'silent' the same, marked data-silent;
+#   'hang'    go('tower', 1) never resolves;
+#   'still'   scene 'sea' ignores p and t: nothing moves while its beats play;
+#   'overflow' the first beat of 'sea' holds two lines too long for the caption area, which scrolls;
+#   'nokey'   no key listener; 'nohash' the hash is not read;
+#   'foreign' info().lines of the first beat says a line the HTML does not hold;
+#   'members' the hook has no play() and no setAuto().
+_FILM_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lamp</title>
+<style>html,body{margin:0;background:#0d1014;color:#eee;font:18px sans-serif}
+.film-on body{overflow:hidden}
+.film-on #picture{position:fixed;left:0;top:0;right:0;bottom:120px}
+#stage{width:100%;height:100%;display:block}
+.film-on #story{position:fixed;left:0;right:0;bottom:0;height:120px;overflow:auto;padding:0 1rem;box-sizing:border-box}
+.film-on #story section{display:none}.film-on #story section.on{display:block}
+.film-on [data-beat]{display:none}.film-on [data-beat].on{display:block}
+.film-on [data-beat][data-place=over].on{position:fixed;left:5%;bottom:200px;font-size:36px}
+.film-on aside[data-notes]{display:none}
+aside[data-notes]{font-size:12px;opacity:0.7}
+h2{font-size:14px;margin:0.4rem 0}p{margin:0.3rem 0}</style></head>
+<body><header class="strip"><span class="mark">LAMP</span></header>
+<main class="picture" id="picture"><canvas id="stage" aria-hidden="true"></canvas></main>
+<article id="story">
+<section data-scene="dawn"><h2>Before light</h2>
+<div data-beat><p>Before light, the sea is one grey.</p></div></section>
+<section data-scene="tower"><h2>The tower</h2>
+<div data-beat><p>The tower stands where the land gives out.</p><p>Its lamp is cold.</p></div>
+<div data-beat data-place="over"><p>Then it turns.</p></div></section>
+<section data-scene="sea"><h2>The answer</h2>
+<div data-beat><p>A boat answers from the dark.</p><aside data-notes>Pause here; let the beam pass twice.</aside></div>
+<div data-beat><p>Morning finds it ashore.</p></div></section>
+</article>
+<script type="module">
+const FAULT = 'none';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas = document.getElementById('stage');
+const gl = canvas.getContext('webgl2');
+const sections = [...document.querySelectorAll('section[data-scene]')];
+const scenes = sections.map((s) => ({ id: s.dataset.scene, title: s.querySelector('h2').textContent,
+                                      beats: s.querySelectorAll('[data-beat]').length }));
+const el = (si, b) => sections[si].querySelectorAll('[data-beat]')[b];
+const lines = (si, b) => [...el(si, b).querySelectorAll('p')].map((p) => p.textContent);
+const S = { si: 0, b: 0, p: 1, t0: performance.now(), tHeld: 0, playing: false };
+let draw = () => {};
+if (gl) {
+  document.documentElement.classList.add('film-on');
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, '#version 300 es\\nin vec2 q; void main(){ gl_Position = vec4(q, 0.0, 1.0); }'));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, '#version 300 es\\nprecision mediump float; uniform vec3 col; out vec4 o; void main(){ o = vec4(col, 1.0); }'));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const col = gl.getUniformLocation(prog, 'col');
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; gl.viewport(0, 0, canvas.width, canvas.height);
+  draw = (si, b, p, t) => {
+    gl.clearColor(0.05, 0.06, 0.08, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const id = scenes[si].id;
+    if (FAULT === 'empty' && id === 'tower' && b === 0) return;
+    if (FAULT === 'same' && id === 'tower') b = 0;
+    if (FAULT === 'still' && id === 'sea') { p = 1; t = 0; }
+    const x = -0.8 + 0.25 * si + 0.3 * b + 0.3 * (1 - p), y = -0.5 + 0.3 * b, w = 0.5 + 0.1 * si, h = 0.6;
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([x, y, x + w, y, x + w, y + h, x, y, x + w, y + h, x, y + h]), gl.STATIC_DRAW);
+    const k = 0.6 + 0.3 * Math.sin(t);
+    gl.uniform3f(col, k * [0.9, 0.3, 0.4][si], k * [0.6, 0.8, 0.5][si], k * [0.3, 0.5, 0.9][si]);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  };
+}
+const now = () => (reduced ? S.tHeld : S.tHeld + (performance.now() - S.t0) / 1000);
+const show = (si, b) => {
+  S.si = si; S.b = b;
+  sections.forEach((s, i) => s.classList.toggle('on', i === si));
+  document.querySelectorAll('[data-beat]').forEach((e) => e.classList.remove('on'));
+  el(si, b).classList.add('on');
+  history.replaceState(null, '', '#' + scenes[si].id + '-' + (b + 1));
+};
+const info = () => ({ scene: scenes[S.si].id, beat: S.b, beats: scenes[S.si].beats, title: scenes[S.si].title,
+  lines: FAULT === 'foreign' && S.si === 0 ? ['Before light, the sea is one gray.'] : lines(S.si, S.b),
+  playing: S.playing, cut: null, auto: false, place: el(S.si, S.b).dataset.place || 'under',
+  notes: (el(S.si, S.b).querySelector('aside[data-notes]') || { textContent: '' }).textContent });
+const find = (id, b) => {
+  const si = scenes.findIndex((s) => s.id === id);
+  if (si < 0 || !(b >= 0 && b < scenes[si].beats)) throw new Error('no beat ' + id + ' ' + b);
+  return si;
+};
+let playId = 0;
+const play = (si, b) => new Promise((done) => {
+  show(si, b); const id = ++playId; S.playing = true;
+  if (reduced) { S.p = 1; S.playing = false; draw(si, b, 1, now()); done(info()); return; }
+  S.p = 0; const t0 = performance.now();
+  const step = () => { if (id !== playId) return; S.p = Math.min(1, (performance.now() - t0) / 600);
+    if (S.p < 1) requestAnimationFrame(step); else { S.playing = false; done(info()); } };
+  step();
+});
+const order = scenes.flatMap((s, si) => [...Array(s.beats).keys()].map((b) => [si, b]));
+const at = () => order.findIndex(([si, b]) => si === S.si && b === S.b);
+const loop = () => { draw(S.si, S.b, S.p, now()); requestAnimationFrame(loop); };
+let readyDone;
+window.__story = {
+  ready: new Promise((r) => { readyDone = r; }),
+  mode: gl ? 'webgl' : 'no-webgl', why: gl ? undefined : 'WebGL 2 is not available in this browser',
+  title: 'Lamp', treatment: 'grade', scenes,
+  go(id, b, { settle = true } = {}) {
+    try {
+      const si = find(id, b);
+      if (FAULT === 'hang' && id === 'tower' && b === 1) return new Promise(() => {});
+      playId++; show(si, b); S.p = 1; S.playing = false; S.tHeld = 0; S.t0 = performance.now();
+      draw(si, b, 1, 0);
+      return Promise.resolve(info());
+    } catch (e) { return Promise.reject(e); }
+  },
+  play(id, b) { try { return play(find(id, b), b); } catch (e) { return Promise.reject(e); } },
+  at(id, b, p, t) {
+    try { const si = find(id, b); playId++; show(si, b); S.p = p; S.tHeld = t; S.t0 = performance.now(); draw(si, b, p, t);
+          return Promise.resolve(info()); } catch (e) { return Promise.reject(e); }
+  },
+  advance() { const i = at(); if (i < order.length - 1) return play(...order[i + 1]); return Promise.resolve(info()); },
+  back() { const i = at(); if (i > 0) { show(...order[i - 1]); S.p = 1; } return Promise.resolve(info()); },
+  setAuto() { return Promise.resolve(info()); },
+  info,
+};
+if (FAULT === 'members') { delete window.__story.play; delete window.__story.setAuto; }
+if (FAULT !== 'nokey') addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') window.__story.advance(); });
+const fromHash = () => {
+  const m = /^#(.+)-(\\d+)$/.exec(location.hash);
+  if (!m) return false;
+  try { const si = find(m[1], Number(m[2]) - 1); show(si, Number(m[2]) - 1); S.p = 1; return true; } catch (e) { return false; }
+};
+if (!(FAULT !== 'nohash' && fromHash())) show(0, 0);
+if (gl) {
+  for (const [si, b] of order) draw(si, b, 1, 0);  // the warm-up: every beat drawn once
+  requestAnimationFrame(loop);
+  setTimeout(() => readyDone(), 200);
+} else readyDone();
+</script></body></html>
+"""
+
+
+def _film(tmp_path: Path, fault: str = "none") -> Path:
+    root = tmp_path / f"film-{fault}"
+    root.mkdir(parents=True)
+    page = _FILM_PAGE.replace("const FAULT = 'none';", f"const FAULT = '{fault}';")
+    beat = '<div data-beat><p>A boat answers from the dark.</p><aside data-notes>'
+    if fault in ("noline", "silent"):
+        page = page.replace(beat, f"<div data-beat{' data-silent' if fault == 'silent' else ''}><aside data-notes>")
+    if fault == "overflow":
+        long = ("The boat came in under oars through the last of the dark, and the man in it kept his eyes on the light "
+                "the whole way {}.")
+        page = page.replace("<div data-beat><p>A boat answers from the dark.</p>",
+                            f"<div data-beat style=\"font-size:36px\"><p>{long.format('in')}</p><p>{long.format('home')}</p>")
+    (root / "index.html").write_text(page)
+    return root
+
+
+def _film_check(tmp_path: Path, fault: str = "none", **kw) -> sc.SiteReport:
+    kw.setdefault("sizes", ("desktop",))
+    kw.setdefault("variants", ())
+    return sc.check_site(str(_film(tmp_path, fault)), out_dir=tmp_path / "out", **kw)
+
+
+@pytest.mark.browser
+def test_a_well_made_film_is_checked_beat_by_beat_and_nothing_is_wrong(tmp_path):
+    t0 = time.monotonic()
+    r = _film_check(tmp_path, sizes=("desktop", "phone"), variants=("reduced", "nowebgl"))
+    wall = time.monotonic() - t0
+    text = r.text()
+    print(f"\nwall {wall:.1f} s\n{text}")
+    assert text.startswith("STORY CHECKED in ") and "SITE CHECKED" not in text, text
+    assert r.broken() == [] and r.noticed() == [], text
+    assert ": nothing broken, 0 things a viewer would notice." in text.splitlines()[0]
+    for name in ("desktop", "phone"):
+        v = r.visits[name]
+        assert [(b.scene, b.beat) for b in v.beats] == [("dawn", 0), ("tower", 0), ("tower", 1), ("sea", 0), ("sea", 1)]
+        assert all(b.frame and b.canvas_frame and b.content > 0.02 for b in v.beats), [(b.scene, b.content) for b in v.beats]
+        assert all(b.change is None if b.first else b.change > 0.01 for b in v.beats)
+        assert v.beats[2].html["over"] and v.beats[2].html["shown"] and not v.beats[2].html["outside"]
+        assert v.beats[3].lines == ["A boat answers from the dark."]          # the note is no line
+        sheet = Image.open(r.sheets[name])
+        thumb, cols = (480, 3) if name == "desktop" else (200, 5)
+        assert sheet.size[0] == cols * (thumb + 6) + 6                          # one tile per beat
+    assert sorted(p.name for p in (tmp_path / "out" / "stills").glob("*.webp")) == ["dawn.webp", "sea.webp", "tower.webp"]
+    assert "stills for the page without WebGL, one per scene at its last beat" in text
+    d = r.visits["desktop"]
+    assert [m["scene"] for m in d.film["moves"]] == ["dawn", "tower", "sea"]
+    assert all(m["p"] > 0.01 and m["t"] > 0.01 for m in d.film["moves"]), d.film["moves"]
+    assert d.film["key"] == {"from": "#dawn-1", "want": "#tower-1", "got": "#tower-1", "why": ""}
+    assert d.film["hash"]["got"] == d.film["hash"]["want"] == "#tower-2"
+    assert r.film["ready"]["state"] == "resolved" and 0 < r.film["ready"]["s"] < 30
+    # the heaviest frame has 2 draw calls: go() draws its block in its own task, the page's loop once more that frame
+    for part in ("- Film: 'Lamp', treatment 'grade', 3 scenes and 5 beats; ready ", "- Desktop 1440x900: 5 of 5 beats "
+                 "photographed", "- Phone 390x844: 5 of 5 beats photographed", "per beat: dawn ", "- Motion while a beat "
+                 "plays", "- The right arrow key goes from #dawn-1 to #tower-1.", "- Opened at #tower-2, the film shows",
+                 "- Downloaded (desktop, all beats): ", "- Scene (desktop, the heaviest beat): 2 draw calls and 4 "
+                 "triangles in one frame", "- With reduce motion set the page asks matchMedia; beat #tower-2, reached "
+                 "with advance(), is shown finished at once", "- Without WebGL: no errors; window.__story.mode is "
+                 "'no-webgl'", "5 of the 5 beats with lines show them as text", "- desktop contact sheet, one tile per "
+                 "beat: "):
+        assert part in text, (part, text)
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert len(record["visits"]["desktop"]["beats"]) == 5 and record["film"]["total"] == 5
+
+
+_FILM_FAULTS = {
+    # fault: (broken or noticed, the start of the one line the answer gives for it)
+    "same": (False, "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0% of the picture differs)"),
+    "empty": (True, "Desktop: the picture shows nothing at #tower-1: under 1% of it differs from its commonest colour"),
+    "noline": (True, "Beat #sea-1 has no line: info().lines is empty there and its <div data-beat> is not marked "
+                     "data-silent."),
+    "hang": (True, "window.__story.go('tower', 1, { settle: true }) did not answer within 8 s (desktop): beat #tower-2 "
+                   "was not photographed."),
+    "still": (False, "Scene 'sea' stands still: at its last beat (#sea-2) the picture at progress 0.3 and at 1 is the "
+                     "same"),
+    "overflow": (False, "Desktop: the caption of beat #sea-1 does not fit: article#story scrolls"),
+    "nokey": (False, "The right arrow key does not advance: pressed at #dawn-1, the film stayed there (the next beat is "
+                     "#tower-1)."),
+    "nohash": (False, "The hash does not open its beat: opened at #tower-2, the film showed #dawn-1 once ready."),
+    "foreign": (True, "Beat #dawn-1 shows a line the page's HTML does not hold: 'Before light, the sea is one gray.'"),
+    "members": (True, "window.__story lacks play and setAuto: the check steps the film through that hook"),
+}
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("fault", list(_FILM_FAULTS))
+def test_one_fault_in_a_film_is_named_and_nothing_else(tmp_path, fault):
+    r = _film_check(tmp_path, fault)
+    broken_, words = _FILM_FAULTS[fault]
+    found, other = (r.broken(), r.noticed()) if broken_ else (r.noticed(), r.broken())
+    assert len(found) == 1 and found[0].startswith(words) and other == [], r.text()
+    if fault == "hang":  # the check went on past the beat that hung
+        assert [(b.scene, b.beat) for b in r.visits["desktop"].beats if b.frame] == [
+            ("dawn", 0), ("tower", 0), ("sea", 0), ("sea", 1)]
+        assert "not made: 'tower' (its last beat did not answer)" in r.text()
+        assert "- Desktop 1440x900: 4 of 5 beats photographed" in r.text() and not r.unfinished
+
+
+@pytest.mark.browser
+def test_a_beat_marked_silent_needs_no_line(tmp_path):
+    r = _film_check(tmp_path, "silent")
+    assert r.broken() == [] and r.noticed() == [], r.text()
+
+
+@pytest.mark.browser
+def test_a_scroll_page_is_still_checked_as_a_site(tmp_path):
+    """The film mode starts only where the page has window.__story: a scroll page's answer is the site's, and its
+    record has no film in it."""
+    r = run(site(tmp_path, "careful"), tmp_path, steps=2)
+    assert r.text().startswith("SITE CHECKED in ") and not r.film and r.visits["desktop"].film is None
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert "film" not in record and "beats" not in record["visits"]["desktop"]
+
+
+def _film_report(tmp_path: Path) -> sc.SiteReport:
+    """A film's record made by hand (no browser): two sizes, five beats, the hook as the probe reads it."""
+    rep = sc.SiteReport("film", tmp_path, seconds=20.0)
+    scenes = [{"id": "dawn", "title": "", "beats": 1}, {"id": "tower", "title": "", "beats": 2},
+              {"id": "sea", "title": "", "beats": 2}]
+    rep.film = {"missing": [], "scenes": scenes, "total": 5, "mode": "webgl", "title": "Lamp", "treatment": "grade",
+                "ready": {"state": "resolved", "s": 1.2, "why": ""}, "size": "desktop"}
+    for name in ("desktop", "phone"):
+        v = sc.Visit(name, loaded=True, load_s=1.0, probe={"contexts": 1})
+        v.film = {"hook": rep.film, "planned": 5, "total": 5, "beats_s": 3.0, "calls": [],
+                  "moves": [{"scene": s["id"], "beat": f"#{s['id']}-{s['beats']}", "p": 0.1, "t": 0.05} for s in scenes]}
+        for i, (s, k) in enumerate(sc.film_order(scenes)):
+            v.beats.append(sc.Beat(s, k, i, first=k == 0, last=(s, k) in {("dawn", 0), ("tower", 1), ("sea", 1)},
+                                   frame=str(tmp_path / f"{name}_b{i:02d}.jpg"), content=0.3,
+                                   change=None if k == 0 else 0.2, lines=[f"Line {i}."], info={},
+                                   html={"found": True, "silent": False, "shown": True, "boxes": 1, "outside": 0,
+                                         "scrolls": None}))
+        rep.visits[name] = v
+    d = rep.visits["desktop"]
+    d.film["key"] = {"from": "#dawn-1", "want": "#tower-1", "got": "#tower-1", "why": ""}
+    d.film["hash"] = {"want": "#tower-2", "got": "#tower-2", "why": ""}
+    return rep
+
+
+def test_the_film_findings_and_their_words(tmp_path):
+    rep = _film_report(tmp_path)
+    assert sc.film_findings(rep) == [] and rep.text().startswith("STORY CHECKED in 20 s: nothing broken, 0 things")
+    d, p = rep.visits["desktop"], rep.visits["phone"]
+    d.beats[2].change = 0.0002                                     # under FILM_SAME
+    p.beats[1].content = 0.004                                     # an empty frame on the phone only
+    p.beats[4].content = 0.05                                      # a sixth of the desktop's 30 %: nearly one tone
+    for v in (d, p):
+        v.beats[3].lines = []                                      # no line, not silent: once, not once per size
+        v.beats[0].foreign = ["Not in the HTML."]
+        v.beats[4].lines = ["x" * 141]
+    d.beats[1].html = {**d.beats[1].html, "outside": 2, "boxes": 3}
+    d.film["moves"][2] = {"scene": "sea", "beat": "#sea-2", "p": 0.0, "t": 0.0}
+    d.film["key"]["got"] = "#dawn-1"
+    d.film["hash"]["got"] = ""
+    d.film["hash"]["why"] = "info() gave no scene and beat"
+    d.film["calls"].append({"call": "at('tower', 1, 0.3, 1)", "method": "at", "why": "late",
+                            "lost": "whether scene 'tower' moves was not read"})
+    rep.film["missing"] = ["play", "setAuto"]
+    kinds = [(f["kind"], f["broken"]) for f in sc.film_findings(rep)]
+    assert kinds == [("missing", True), ("call", True), ("empty", True), ("no_line", True), ("foreign", True),
+                     ("same", False), ("still", False), ("caption", False), ("long", False), ("tone", False),
+                     ("key", False), ("hash", False)], kinds
+    broken, noticed = rep.broken(), rep.noticed()
+    assert broken == [
+        "window.__story lacks play and setAuto: the check steps the film through that hook (its members are ready, "
+        "mode, title, treatment, scenes, go, play, at, advance, back, setAuto, info), and what it cannot call goes "
+        "unchecked. Give the hook every member.",
+        "window.__story.at('tower', 1, 0.3, 1) did not answer within 8 s (desktop): whether scene 'tower' moves was not "
+        "read. A call of the hook resolves with info() once its frame is drawn, and rejects only for a scene or beat "
+        "that does not exist.",
+        "Phone: the picture shows nothing at #tower-1: under 1% of it differs from its commonest colour (0.40%). A "
+        "camera that looks away from its set, or a set with no light on it, does this. Look at phone_b01.jpg.",
+        "Beat #sea-1 has no line: info().lines is empty there and its <div data-beat> is not marked data-silent. Give "
+        "it a <p> in the HTML, or mark the div data-silent where the beat is meant to be silent.",
+        "Beat #dawn-1 shows a line the page's HTML does not hold: 'Not in the HTML.' (info().lines). The story's text "
+        "is the HTML, which a browser without WebGL shows and this check compares: put the line in that beat's <div "
+        "data-beat>, or show the one that is there."], broken
+    assert noticed == [
+        "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0.02% of the picture differs): a beat "
+        "must change something the viewer can see (a camera move, an object, the light). Look at desktop_b01.jpg and "
+        "desktop_b02.jpg.",
+        "Scene 'sea' stands still: at its last beat (#sea-2) the picture at progress 0.3 and at 1 is the same, and so "
+        "is the picture at ambient time 1 s and 3 s (0% and 0% of it differs). Give each beat one slow camera move or "
+        "one event, and the scene a little ambient life (a flicker, rain, a turning light).",
+        "Desktop: the caption of beat #tower-1 does not fit: 2 of its 3 line boxes lie outside the window or the box "
+        "that holds them. Shorten the line, or give it more room at this size. Look at desktop_b01.jpg.",
+        f"Beat #sea-2: a line of 141 characters ('{'x' * 60}...'): over 140 a line is a paragraph, which the viewer "
+        "reads instead of looking at the picture. Shorten it or split it over two beats.",
+        "Phone: the picture is nearly one tone at #sea-2 (5% of it shows something, against 30% on the desktop): the "
+        "framing at this size has lost the subject. Frame it for this shape of picture (kit.fit takes a field of view "
+        "for portrait and one for landscape). Look at phone_b04.jpg.",
+        "The right arrow key does not advance: pressed at #dawn-1, the film stayed there (the next beat is #tower-1). "
+        "Listen for ArrowRight on window and call advance(), as the contract's keys say.",
+        "The hash does not open its beat: opened at #tower-2, the film did not say which beat it showed (info() gave "
+        "no scene and beat) once ready. Read location.hash once the film is ready, and on hashchange, and go to that "
+        "beat."], noticed
+    text = rep.text()
+    assert text.startswith("STORY CHECKED in 20 s: 5 things broken, 7 things a viewer would notice.")
+    heads = [text.splitlines().index(h) for h in ("Broken:", "A viewer would notice:", "Measures:", "Pictures:")]
+    assert heads == sorted(heads)
+
+
+def test_a_long_film_is_sampled_evenly_with_every_scenes_last_beat():
+    scenes = [{"id": f"s{i}", "beats": 6} for i in range(10)]           # 60 beats
+    got = sc.film_sample(scenes, 48)
+    order = sc.film_order(scenes)
+    assert len(got) == 48 and got == sorted(got, key=order.index)
+    assert all((f"s{i}", 5) in got for i in range(10))
+    assert sc.film_sample(scenes[:2], 48) == sc.film_order(scenes[:2])  # a short film: every beat
+    many = [{"id": f"s{i}", "beats": 1} for i in range(60)]
+    assert len(sc.film_sample(many, 48)) == 48
+
+
+def test_a_line_is_compared_with_the_html_text_whitespace_and_markup_aside():
+    text = sc.html_text("<p>He kept<br>the <em>light</em>\n turning &amp; wrote it down.</p><script>'In a script.'</script>")
+    assert sc.foreign_lines(["He kept the light turning & wrote it down.", "In a script."], text) == ["In a script."]

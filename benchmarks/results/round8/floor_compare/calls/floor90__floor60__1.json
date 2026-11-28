@@ -1,0 +1,33 @@
+{
+ "first": "floor90",
+ "second": "floor60",
+ "rep": 1,
+ "frames": [
+  "781f83bd866b4842",
+  "4309143d855e99e2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites are visually identical across all 9 scroll frames, sharing the exact same camera angles and text card placements from frame 1 through frame 9."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory press, anchor rack, and host lane metaphors across frames 3, 5, 6, and 8 to illustrate how Straitjacket compresses logs and routes tokens."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "While the 3D models and animations are identical, the second site renders the ground grid and ambient scene in frames 1 through 9 with a slightly deeper, cleaner slate contrast than the washed-out grey in the first site."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Typography, card hierarchy, and top navigation bars are completely identical between the two sites in every frame from 1 to 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Although both sites appear to be nearly identical builds with the same 3D models, camera choreography, and layout, the second site has slightly richer contrast and darker ground shading that makes the 3D scene pop better."
+  }
+ }
+}

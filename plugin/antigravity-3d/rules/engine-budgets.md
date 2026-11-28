@@ -10,7 +10,11 @@ The stage is authored in metres, Z-up. `export_engine_package` converts per
 engine; never pre-convert the stage. Per-asset defaults (studio budget,
 `antigravity3d.state.EngineBudget`): 15,000 triangles, 4 draw calls,
 1024 px/m texel density, UV stretch at most 0.05, 8 collision hulls, manifold
-geometry. The session budget is set by `open_asset_session`; a project
+geometry. Draw calls are counted as the package ships them: opaque materials
+that differ only in colour, roughness, metal, emission colour or their maps
+are baked into one atlas and are one draw call together; each see-through
+material and each different emissive strength, coat, sheen, specular or index
+of refraction is one more, and so is a double-sided part. The session budget is set by `open_asset_session`; a project
 `.agy3d/budget.json` is read only by the SessionStart hook, which reports it.
 Entries marked "hint" are conservative studio hints, not documented engine
 hard limits.

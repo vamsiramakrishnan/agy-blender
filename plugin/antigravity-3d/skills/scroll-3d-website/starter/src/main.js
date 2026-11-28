@@ -158,6 +158,14 @@ async function boot() {
       draw(wanted());
     },
     progress: () => shown,
+    // The scroll position (px) at which story time is T, for an effect of the page's own that must come with the film:
+    // scrollAt(at('how', MOVE)) is where the camera arrives at 'how' and its panel comes up. Not the chapter's top
+    // plus a share of its height: the last chapter runs on its height less the window (chapters.js). Run 6 started
+    // its last panel's lines by that sum, and the card stood empty from 35 % to 64 % of its chapter.
+    scrollAt(T) {
+      if (needMeasure) { needMeasure = false; remeasure(); }
+      return scrollFor(boxes, T);
+    },
     jumpTo,
     at,
     label: stage.label,

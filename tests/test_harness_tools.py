@@ -359,10 +359,26 @@ async def test_forge_blocked_by_policy(tmp_path, monkeypatch):
 
 
 async def test_shader_diff_rolls_back_over_draw_budget(tmp_path):
+    """A draw call is a material as it ships. A second opaque material that differs in colour or metal is baked into
+    the same atlas and costs none (runs 5 and 6 of the website task were refused "draws 6>4" for six such materials, and
+    their packages ship one draw call); one with an emissive strength of its own keeps its own glTF material and costs
+    one."""
     env = make_session(tmp_path, budget=EngineBudget("unreal_5", max_draw_calls=1), stage="LOOKDEV")
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
-    r = await T.apply_shader_diff("red", json.dumps({"base_color": [1, 0, 0], "assign_to": ["lid"]}), env.ctx)
-    assert r.startswith("ROLLED BACK") and "draws 2>1" in r
+    r = await T.apply_shader_diff("grey", json.dumps({"base_color": [0.4, 0.4, 0.4], "roughness": 0.8, "assign_to": ["body", "lid"]}), env.ctx)
+    assert r.startswith("SHADER grey") and "draws=1" in r, r
+    r = await T.apply_shader_diff("red", json.dumps({"base_color": [1, 0, 0], "metallic": 1.0, "assign_to": ["lid"]}), env.ctx)
+    assert r.startswith("SHADER red") and "draws=1" in r, r                       # two opaque finishes, one atlas
+    r = await T.apply_shader_diff("lamp", json.dumps({"base_color": [1, 0, 0], "emissive_color": [1, 0.2, 0], "emissive_strength": 3.0,
+                                                      "assign_to": ["lid"]}), env.ctx)
+    assert r.startswith("ROLLED BACK") and "draws 2>1" in r, r                    # a lamp of its own strength is its own material
+    # where the budget keeps one atlas per material, or the parts as nodes of their own, a material is a draw call again
+    for kw in ({"shared_atlas": False}, {"keep_contact_faces": True}):
+        env = make_session(tmp_path / next(iter(kw)), budget=EngineBudget("unreal_5", max_draw_calls=1, **kw), stage="LOOKDEV")
+        await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+        await T.apply_shader_diff("grey", json.dumps({"base_color": [0.4, 0.4, 0.4], "assign_to": ["body", "lid"]}), env.ctx)
+        r = await T.apply_shader_diff("red", json.dumps({"base_color": [1, 0, 0], "assign_to": ["lid"]}), env.ctx)
+        assert r.startswith("ROLLED BACK") and "draws 2>1" in r, (kw, r)
 
 
 async def test_paintover_and_lookdev_fallback(env):

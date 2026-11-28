@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "floor90",
+ "rep": 1,
+ "frames": [
+  "fefcd13ba712ee55",
+  "781f83bd866b4842"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same camera choreography from frames 1 to 9, including identical slight overlap of the text card with the 3D cabinet in frame 5."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites illustrate the token press, anchor rack, and host lanes identically across frames 1 through 9, though the dark floor in site 1 makes the 3D label in frame 8 slightly more legible."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "In frames 1 through 9, site 2's lighter slate grid floor clearly reveals contact shadows, grounding the dark machinery in 3D space instead of blending into a near-black floor like site 1."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "While the UI cards are identical across frames 1 to 9, site 1's darker background keeps visual hierarchy focused on the cards and brightly colored 3D accents, and improves contrast for the blue floor label in frame 8."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Although both sites share identical models, copy, and scroll choreography, the lighter gridded floor in site 2 reveals cast shadows and spatial depth that make the dark 3D machinery feel physically grounded."
+  }
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "run1",
+ "second": "run6",
+ "rep": 2,
+ "frames": [
+  "e074b52a7a5c36c0",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its 3D apparatus clearly framed and unobstructed across all frames 1-9, whereas Site 1 hides its 3D subject behind cards in frames 2-3 and leaves frame 6 empty of 3D."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 visually demonstrates token compression, anchor storage, and host routing via physical factory mechanics in frames 3-8, whereas Site 1 relies more on abstract sci-fi machinery in frames 1-4 and 7."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 displays richer metallic materials, specular highlights, and emissive lighting in frames 1, 4, and 7 compared to the flatter, matte-shaded models on a plain grid in Site 2's frames 1-9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 anchors concise, readable cards consistently in the top-left across frames 1-3, 5-6, and 8-9, while Site 1 uses tall, scrolling cards that clip at viewport edges and overlap the 3D in frames 2-3 and 6-9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 better fulfills the request by seamlessly pairing clean scroll choreography with a clear, literal 3D mechanical visualization of how Straitjacket processes logs, anchors, and harnesses."
+  }
+ }
+}

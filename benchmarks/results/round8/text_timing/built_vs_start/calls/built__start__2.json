@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "start",
+ "rep": 2,
+ "frames": [
+  "fefcd13ba712ee55",
+  "1f16075429ffb9e0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 hides the left text card during camera transitions in frames 4 and 7 so the 3D anchor rack is never covered, whereas Site 2 keeps the card visible in frame 4 right on top of the left 3D cabinet and keeps a persistent card in frame 7."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory metaphor\u2014pressing a 302,628-token slab in frame 3 into a bounded digest in frame 5, storing content anchors in frame 6, and routing across seven host gates in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the identical 3D scene, models, shaders, lighting, and floor grid across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "While typography and card design are identical in frames 1\u20133, 5\u20136, and 8\u20139, Site 1 clears the card in frame 4 to give the wide 3D machinery room instead of letting the text panel collide with the 3D cabinet as in Site 2's frame 4."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Although both sites are nearly identical builds of the same 3D visualization, Site 1 times its UI cards to clear the viewport during camera moves (frames 4 and 7) so the text panel never obscures the 3D machinery."
+  }
+ }
+}

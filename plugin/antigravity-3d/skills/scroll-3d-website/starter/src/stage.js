@@ -23,14 +23,24 @@ export const LIGHT = { key: 2.35, rim: 0.85, environment: 0.65 };
 // form. Measured for amber #F0B429: the top #E3AC37 and a wall #D19F3A, where the plain colour comes out #F8C15B.
 export const PROP_LIGHT = 0.28 * LIGHT.key + 1.84 * LIGHT.environment + LIGHT.rim * RIM_DIR.y / Math.PI;
 export function lit(colour) { return new THREE.Color(colour).multiplyScalar(1 / PROP_LIGHT); }
-// The ground must still come out as the page's ground colour, whatever the props are lit with, so it fades into the
-// page. Two things do that, and a floor material of your own needs both (groundLook() below):
+// The ground is a lit surface for shadows to fall on, not the page's own dark: --ground (style.css) shows at about 60
+// of 255 near the camera on a page at 18, and the fog below takes it to the page's colour at the horizon. On a
+// ground as dark as the page a shadow has nothing to darken and the props float: run 6's site, rebuilt with its floor
+// at 61 where it had been at 19 and nothing else changed, was preferred by a blind judge in five of six verdicts ("the
+// lighter slate floor catches cast shadows and grounds the dark machinery"), and at 61 over 91 in six of six, where
+// the labels and cards read worse (benchmarks/results/round8/floor_compare/). Runs 4, 5 and 6 had the dark one
+// because this file and the guide asked for a ground in the page's colour.
+// What must not happen is the props' light washing the ground out. Two things prevent it, and a floor material of
+// your own needs both (groundLook() below):
 // - its colour is divided by GROUND_LIGHT, what a face turned up receives (libraries.md, the light section: 0.28 of the
 //   key from KEY_DIR, 1.84 of the environment as the ground takes it, the rim by the cosine of its angle over pi), so
 //   it is drawn as if lit at 1;
 // - it takes the environment at GROUND_ENVIRONMENT, not at LIGHT.environment: most of what a dark floor shows is the
-//   environment's reflection in it, which its colour does not scale. Measured on the starter: with the colour divided
-//   alone the floor came out at (33, 35, 40) near the camera where it had been (15, 18, 25).
+//   environment's reflection in it, which its colour does not scale. Measured on the starter with a ground of
+//   #1a1d22: with the colour divided alone the floor came out at (33, 35, 40) near the camera, with both at
+//   (15, 18, 25).
+// The ground does not show as its hex: the tone mapper takes up to 0.04 (linear) out of a dark colour, so --ground
+// #474e5a shows as #323b49 seen from straight above (libraries.md, the swatch example). Choose it by what it shows.
 export const GROUND_ENVIRONMENT = 0.25;
 export const GROUND_LIGHT = 0.28 * LIGHT.key + 1.84 * GROUND_ENVIRONMENT + LIGHT.rim * RIM_DIR.y / Math.PI;
 // For a ground material: its colour for a design colour, and the environment it reflects. A material that names its
@@ -112,7 +122,7 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   scene.add(rim);
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200),
-    new THREE.MeshStandardMaterial({ ...groundLook(scene, css('--ground', '#1a1d22')), roughness: 0.95 }));
+    new THREE.MeshStandardMaterial({ ...groundLook(scene, css('--ground', '#474e5a')), roughness: 0.95 }));
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);

@@ -1,0 +1,33 @@
+{
+ "first": "floor55",
+ "second": "built",
+ "rep": 1,
+ "frames": [
+  "6e11103fbb40f311",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites share the exact same camera framing and scroll choreography across frames 1 through 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "In frames 1, 4, and 5, the lighter slate floor on Site 1 separates the dark machinery from the background so the visual metaphor is legible."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "In frames 1, 3, and 9, Site 1's lighter floor catches contact shadows and grounds the dark industrial frames, whereas Site 2's dark floor blends into the black metal."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Across frames 1 to 9, Site 2's subtler dark grid keeps visual noise low behind the left-aligned text card while sharing identical typography."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Although the two sites are nearly identical, Site 1's lighter floor plane gives the dark 3D machinery essential contrast, contact shadows, and spatial legibility."
+  }
+ }
+}

@@ -1,7 +1,8 @@
 /* style.css: layout plumbing, not a design. Replace the colours and type with the project's own design rules. */
 :root {
   --bg: #101215;            /* also the scene's background and fog colour (stage.js reads it) */
-  --ground: #1a1d22;        /* the ground the props stand on */
+  --ground: #474e5a;        /* the ground the props stand on: a lit slate, far above --bg, so that shadows show on
+                               it (stage.js says what was measured); the fog takes it to --bg at the horizon */
   --ink: #e9e7e2;
   --muted: #a3a29c;
   --panel: rgba(16, 18, 21, 0.82);

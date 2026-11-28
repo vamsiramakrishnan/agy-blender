@@ -7,15 +7,15 @@ description: >-
   loader, and shaders, smooth scrolling and effects from current web libraries
   (GSAP, Lenis, postprocessing, React Three Fiber). Gives the order of work
   (storyboard, page and scene from a tested starter, props, a look with
-  check_site, revision), what makes a site scroll beautifully and a guide to
-  the libraries with checked examples. Use when
+  check_site, revision), what makes a site scroll beautifully and a library
+  guide with checked examples. Use when
   the user asks to generate, build, design or improve a website, web page,
   landing page or scrollytelling explainer, says it should scroll beautifully,
   or names three.js, WebGL or shaders for a site, also when it asks for 3D
   models: read it before modelling for the site. Not for
-  modelling one prop on its own (use parametric-kitbash) or for putting a
-  finished package into a game or app that already exists (use
-  install-into-project).
+  one prop alone (use parametric-kitbash), slides or a film told beat by beat
+  (use story-slides-3d) or a finished package going into an existing game or
+  app (use install-into-project).
 ---
 
 # Scroll-driven 3D website
@@ -75,6 +75,15 @@ travels through, not a slideshow of scenes. Why: judged blind against run 2, run
 verdicts and the worse explanation in four. Run 2's press stood open over the log, its rollers carried the lines and
 seven lanes stood for seven hosts, where run 3 "hides the digestion inside a closed box"; and run 3's text said 570
 times while its picture showed 96 slabs against 6.
+
+Give every mechanism the text explains a station of its own, and stand the stations along one path in the order the
+followed thing meets them, far enough apart that a chapter's shot holds its own station at work (a medium or a close
+shot, [recipes.md](recipes.md)) and not the whole group from a distance. The group is for the opening and for the
+end. Why: on how well the picture explains the project a blind judge preferred run 4's and run 5's sites to run 6's
+in six of six verdicts each, for "a clearer linear bench from flood to press, drawer store, and relocator", where
+run 6 "clusters machines tightly and skips a dedicated local-store stage": it had three machines for four
+mechanisms and kept its camera back to hold them (thirteen of the twenty verdicts against it on that criterion say
+clustered, distant or further back).
 
 ### 2. Page and scene
 
@@ -211,12 +220,14 @@ Each is one instruction and its reason. The starter already does the ones marked
   props across y 0.42 to 0.62 with the bottom 40 % empty grid.
 - **Light shows the objects' form and keeps the design's colours.** (starter) A key light with a shadow whose box
   follows the shot, a rim light from behind, an environment for reflections, a soft contact shadow under each prop,
-  ambient occlusion, a ground that keeps the page's ground colour under that light and fog that fades it into the page
-  ([libraries.md](libraries.md), the light section); a part in an accent colour is lit with `lit(colour)`, and only a
-  flat mark that must match the text exactly is `toneMapped: false`. Why: without a shadow an object floats (nothing
-  cast one in run 1); run 3 added a fill light and raised the environment on a ground that took it all, and its amber
-  and its floor no longer matched the design; runs 4 and 5 were built with the rim taken out and the rest more than
-  halved, and the same site (run 4's) was preferred under the present light in six of six blind verdicts.
+  ambient occlusion, a lit ground for the shadows to fall on (the starter's ground colour, about 60 of 255 on screen,
+  not the page's background or card colour) and fog that fades it into the page ([libraries.md](libraries.md), the light
+  section); a part in an accent colour is lit with `lit(colour)`, and only a flat mark that must match the text
+  exactly is `toneMapped: false`. Why: without a shadow an object floats (nothing cast one in run 1), and on a floor
+  as dark as the page the shadow does not show (runs 4 to 6; run 6's site with its floor lit was preferred in eleven
+  of twelve blind verdicts); run 3 added a fill light and raised the environment on a ground that took it all, and
+  its amber and its floor no longer matched the design; runs 4 and 5 were built with the rim taken out and the rest
+  more than halved, and the same site (run 4's) was preferred under the present light in six of six blind verdicts.
 - **Many small things are one draw call.** Draw repeated items as one `InstancedMesh` (or one geometry). Why: draw
   calls, not triangles, are what a phone runs out of first.
 - **Effects are used sparingly and measured.** Add a pass beyond the starter's occlusion (bloom, depth of field) only

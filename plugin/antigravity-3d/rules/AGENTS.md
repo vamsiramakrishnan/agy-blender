@@ -39,6 +39,12 @@ A request for a website, web page, landing page or scroll-driven 3D explainer
 needs, when to build them and how they reach the page. Its props are then built
 by the short path below.
 
+A request for a story, a short film, an animated explainer, a title sequence,
+a talk or a slide deck told scene by scene in three.js or WebGL (a fixed frame
+the viewer steps through, not a page that scrolls) goes to the skill
+`story-slides-3d` first, before any modelling: its sets are boxes and light, and it
+says when one prop is worth building.
+
 ## The short path
 
 Every model call sends the whole conversation so far, so the number of calls
@@ -162,7 +168,10 @@ control when the user asks for it.
 
 Default studio budget per asset: at most 15,000 triangles, 4 draw calls,
 1024 px/m texel density, UV stretch at most 0.05, 8 collision hulls,
-manifold geometry. Per-engine limits are in `engine-budgets.md`. The session's
+manifold geometry. A draw call is a material as it ships, not a material as it
+is named: every opaque material shares one atlas and one draw call, however
+many there are; a see-through material adds one, and so does each different
+emissive strength, coat or sheen. Per-engine limits are in `engine-budgets.md`. The session's
 budget is set by `open_asset_session` (target engine and `max_tris`); a
 `budget.json` in the project's `.agy3d/` folder is read only by the SessionStart
 hook, which shows it.

@@ -218,6 +218,37 @@ WITNESS_TOL = TOUCH_TOL - 1e-4
 # modelled: the script samples at most about 400 vertices of a larger piece.
 
 
+def draw_key(m: MeshData, budget: EngineBudget) -> Any:
+    """What tells one shipped draw call from another: the glTF material a mesh ships with.
+
+    A static prop ships one batch per glTF material (``package.build_package``). With a shared atlas the base colour,
+    roughness, metal, normal and emission colour of every opaque material are baked into the atlas's maps, so two
+    opaque materials that differ only in those ship as one glTF material (``package.merge_materials``). What stays a
+    material's own is what ``package.gltf_material`` writes beside the maps: an emissive strength other than 1, a coat,
+    a sheen, a specular or an index of refraction off their defaults, and whether its part is drawn from both sides.
+    ``tests/test_shared_atlas.py`` holds this count against the packages' own. A material not known to be opaque keeps
+    an atlas of its own; so does every material where the budget shares no atlas or keeps parts as nodes of their own
+    (``keep_contact_faces``). There the key is the material's id, which is all this count ever was.
+
+    Why: in runs 5 and 6 of the website task the agent's first design of a prop had six materials, the answer was
+    "ROLLED BACK TIER1 FAIL: draws 6>4", and the agent cut the prop to four. The packages it delivered ship one draw
+    call each: a cost was refused that the package never has, and every prop was held to four finishes."""
+    p = m.material
+    if not (budget.shared_atlas and not budget.keep_contact_faces and m.opaque and p is not None):
+        return m.material_id
+    return ("shared atlas", bool(m.double_sided),
+            p.emissive_strength if p.emissive_strength != 1.0 else None,
+            (p.clearcoat, p.clearcoat_roughness) if p.clearcoat > 0.0 else None,
+            p.ior if p.ior != 1.5 else None,
+            (tuple(p.sheen_color), p.sheen_roughness) if any(p.sheen_color) else None,
+            (p.specular, tuple(p.specular_color)) if p.specular != 1.0 or tuple(p.specular_color) != (1.0, 1.0, 1.0) else None)
+
+
+def shipped_draw_calls(meshes: Iterable[MeshData], budget: EngineBudget) -> int:
+    """The draw calls the package ships for ``meshes``: one per glTF material (``draw_key``)."""
+    return len({draw_key(m, budget) for m in meshes})
+
+
 def closed_meshes_required(budget: EngineBudget) -> bool:
     """Whether an open (not watertight) authored mesh fails the asset on the target engine: the engine rule table's
     ``closed_render_meshes`` (validator.ENGINE_RULES) unless the budget says otherwise (``require_manifold`` set).
@@ -284,7 +315,7 @@ def tier1_qa(
         valid.append((m, topo.closed and topo.volume > 0, pts.min(axis=0), pts.max(axis=0)))
         volumes.append(topo.volume)
 
-    draw_calls = len({m.material_id for m in meshes})
+    draw_calls = shipped_draw_calls(meshes, budget)
     if total_tris > budget.max_tris:
         add("tri_budget", "critical", None, f"{total_tris} tris > {budget.max_tris}")
     if draw_calls > budget.max_draw_calls:

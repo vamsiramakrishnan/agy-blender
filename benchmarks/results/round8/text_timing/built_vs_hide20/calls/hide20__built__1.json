@@ -1,0 +1,33 @@
+{
+ "first": "hide20",
+ "second": "built",
+ "rep": 1,
+ "frames": [
+  "a6a374bdc463cd2d",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 composes transition frames 4 and 7 with clean, dramatic close-up camera sweeps over the 3D machinery without leaving an awkward half-faded ghost card in frame 7 like Site 1 does."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same clear 3D mechanical factory metaphor across frames 1 through 9\u2014compressing token slabs in the digest press (frame 5), filing content anchors (frame 6), and routing seven host gates (frame 8)."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites share identical well-crafted, grounded 3D machinery with beveled metallic edges, tactile colored blocks, and soft shadows on the dark grid floor across frames 1 to 9, though Site 2 shows off the detail slightly closer in frames 4 and 7."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "While both share the crisp left-hand UI panel in frames 1\u20133, 5\u20136, and 8\u20139, Site 2 avoids the nearly illegible, low-contrast faded card state caught mid-scroll in Site 1's frame 7."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Although both versions share the same clever 3D token-press visualization and layout, Site 2 delivers cleaner scroll choreography and avoids the awkward half-faded text panel seen in Site 1's transition frames."
+  }
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "start",
+ "second": "built",
+ "rep": 1,
+ "frames": [
+  "1f16075429ffb9e0",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 clears the text card during camera transitions in frames 4 and 7 so the 3D anchor rack in frame 4 is not covered by the UI panel like it is in Site 1 frame 4."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory metaphor\u2014showing token slabs entering a digest press, anchor rack, and 7-lane gate across frames 1 to 9\u2014to explain how Straitjacket works."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature the identical well-crafted, grounded 3D machinery, grid floor, materials, and lighting across all frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "While typography and card styling are identical, Site 2 paces its text cards so they fade out during camera moves in frames 4 and 7, leaving the 3D scene unobstructed."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 improves upon the shared design by hiding the left-hand text card during intermediate scroll transitions so it never collides with the 3D machinery."
+  }
+ }
+}

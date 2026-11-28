@@ -157,7 +157,10 @@ stage draws itself, or in a layer's `update`, which is called with that state (a
 `window.__site.at`. A share of the whole story is `T / ids.length`. Why: the chapters come from the HTML, so a raw
 story time (`fade = ramp(T, 2.0, 2.85)`) or a fixed count (`T / 7`), as run 2 wrote, points at the wrong chapter as soon
 as one is added or moved. The same goes for links: the starter's `jumpTo(id)` lands on `T = at(id, REST)`, where the
-chapter's move is done and its text is up.
+chapter's move is done and its text is up. And for an effect of the page's own that must start at such a moment (a
+ScrollTrigger, say): its place on the page is `window.__site.scrollAt(T)`, not the chapter's top plus a share of its
+height. Why: the last chapter runs on its height less the window, so that sum is late there; run 6 started the lines of
+its last panel by it, and the card stood empty from 35 % to 64 % of the chapter.
 
 ## Facts with their source
 
