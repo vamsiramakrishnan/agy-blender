@@ -31,11 +31,12 @@ A request for a website, web page, landing page or scroll-driven 3D explainer
 needs, when to build them and how they reach the page. Each prop is then one
 script, as below.
 
-A request for a story, a short film, an animated explainer, a title sequence,
-a talk or a slide deck told scene by scene in three.js or WebGL (a fixed frame
-the viewer steps through, not a page that scrolls) goes to the skill
-`story-slides-3d` first, before any script: its sets are boxes and light, and it
-says when one prop is worth building.
+A request for slides, a deck, a talk, a pitch or a presentation that plays in
+the browser, or for a story, a short film, an animated explainer or a title
+sequence told scene by scene in three.js or WebGL (a fixed frame the viewer
+steps through, not a page that scrolls) goes to the skill `story-slides-3d`
+first, before any script: its slides are HTML over a stage of boxes and light,
+and it says when one prop is worth building.
 
 ## How the tools reach you
 
