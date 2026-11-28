@@ -91,6 +91,9 @@ STILL = 0.0015
 #: how long one step may take to settle once the page has drawn at the new position (its first two frames after the
 #: scroll); a page still changing after it is photographed as it is and named in the answer
 SETTLE_CAP_S = 4.0
+#: The picture "glides" after a scroll when it goes on changing for this long once the page has drawn at the new
+#: place (``Step.changing_s``): smooth scrolling left on under reduce motion does, for about a second.
+GLIDE_S = 0.5
 #: ... and the most a step may take from the scroll itself, however long those first frames take. Counting the 4 s from
 #: the scroll was wrong for a heavy page: run 4's site (188,000 triangles and an occlusion pass, drawn in software,
 #: four visits at once) took 3.5 s for its first frame after the jump from the top of the page to its end, the check
@@ -318,6 +321,10 @@ class Step:
     frame: str = ""         # path of the frame
     canvas_frame: str = ""  # path of the canvas-only frame ("" when the page has no WebGL canvas in view)
     settle_s: float = 0.0
+    # of that, how long the picture went on changing after the page had drawn at the new place (0: its first frame
+    # there was its last). The rest of settle_s is the wait for that first frame, which on a heavy page in software is
+    # seconds and says nothing about the page's motion.
+    changing_s: float = 0.0
     motion: str = "still"   # how the picture settled: still | ambient | moving (see _Visitor.settle)
     canvas_content: float | None = None  # share of the canvas showing something other than its background
     shape: float | None = None  # share of that which is one solid shape (largest_shape)
@@ -725,11 +732,14 @@ class SiteReport:
         if r_step and d and d.steps:
             d_step = min(d.steps, key=lambda s: abs(s.share - r_step.share))
         glide = ""
-        # a scroll that still glides to a stop under the setting (smooth scrolling left on) is reported; the times of a
-        # page that never holds still say nothing
-        if r_step and d_step and r_step.motion == "still" and r_step.settle_s >= 1.0:
-            glide = (f"; after a scroll the picture still takes {r_step.settle_s:.1f} s to come to rest (without the "
-                     f"setting {d_step.settle_s:.1f} s)")
+        # A scroll that still glides to a stop under the setting (smooth scrolling left on) is reported; the times of a
+        # page that never holds still say nothing. What counts is how long the picture went on changing once the page
+        # had drawn at the new place, not the whole wait: run 6's page comes to rest in its first frame under the
+        # setting, and this line said "takes 9.5 s to come to rest (without the setting 2.2 s)", which was the time this
+        # browser, drawing four visits at once in software, took to draw that frame.
+        if r_step and d_step and r_step.motion == "still" and r_step.changing_s >= GLIDE_S:
+            glide = (f"; after a scroll the picture still goes on changing for {r_step.changing_s:.1f} s once it has "
+                     f"drawn at the new place (without the setting {d_step.changing_s:.1f} s)")
         how = []
         if r.probe and r.probe.get("reducedMotionQueried"):
             how.append("asks matchMedia")
@@ -1881,6 +1891,7 @@ class _Visitor:
         left = self.clock.left() - WRAP_UP_S
         cap, hard = max(0.5, min(cap, left)), max(0.5, min(max(cap, SETTLE_HARD_S), left))
         prev, last_d, shot, arrived = None, None, b"", None
+        self.changing_s = 0.0  # of this settle: until when, after the page drew here, a frame still differed from the last
         while True:
             with contextlib.suppress(Exception):  # a page that navigated or never ran the probe: take the frame anyway
                 await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), max(0.5, hard if arrived is None else cap))
@@ -1894,6 +1905,7 @@ class _Visitor:
                 self.log(f"  frame change {d:.4f} at {el:.1f} s (drawn here after {arrived:.1f} s)")
                 if d < STILL:
                     return shot, el, "still"
+                self.changing_s = max(0.0, el - arrived)
                 if last_d is not None and el - arrived >= 1.0 and d >= 0.7 * last_d and d < AMBIENT:
                     return shot, el, "ambient"
                 last_d = d
@@ -2090,7 +2102,8 @@ class _Visitor:
             shot, secs, motion = await self.settle(page, SETTLE_CAP_S)
             end = await page.evaluate("window.__agySite.stepEnd(false)")
             w = end["win"]
-            step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
+            step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), changing_s=round(self.changing_s, 2),
+                        motion=motion, reached_by=how,
                         draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)),
                         shown_triangles=int((end.get("last") or {}).get("tris", 0)))
             step.subjects, step.subjects_note, step.text = await self.subjects(page)
@@ -2497,7 +2510,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                     await vis.scroll_to(page, round(geo["max"] * one_step))
                     shot, secs, motion = await vis.settle(page, SETTLE_CAP_S)
                     vis.v.steps.append(Step(0, one_step, round(await page.evaluate("window.__agySite.y()")), settle_s=round(secs, 2),
-                                            motion=motion))
+                                            changing_s=round(vis.changing_s, 2), motion=motion))
                     vis.v.idle = await vis.idle(page)
                 if not do_steps:
                     f = out / f"{name}.jpg"

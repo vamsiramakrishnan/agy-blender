@@ -329,6 +329,8 @@ def test_a_slow_first_frame_after_a_jump_is_waited_for_and_the_picture_is_the_ar
     steps = {round(s.share, 2): s for s in r.visits["desktop"].steps}
     end = steps[1.0]
     assert end.motion == "still" and 4.3 < end.settle_s < sc.SETTLE_HARD_S, (end.motion, end.settle_s)
+    # the wait for the page's first frame there is no motion of the page: once drawn, the picture did not go on gliding
+    assert end.changing_s < sc.GLIDE_S, end.changing_s
     px = np.asarray(Image.open(end.frame).convert("RGB")).astype(int)[140, 190]  # inside both panels' box
     assert px[1] > px[0] + 80, f"the last frame shows the first panel still: {px.tolist()}"
     back = np.asarray(Image.open(steps[0.5].frame).convert("RGB")).astype(int)[140, 190]
@@ -1568,3 +1570,20 @@ def test_text_that_scrolls_with_the_page_answers_the_first_notch_and_a_restless_
     assert restless.visits["desktop"].first_notch in ({"px": 120, "motion": "ambient"}, {"px": 120, "motion": "moving"})
     assert not [x for x in restless.noticed() if "first scroll" in x], restless.noticed()
     assert "was not measured: the top of the page keeps changing by itself" in restless.text(), restless.text()
+
+
+def test_reduce_motion_is_said_to_glide_by_how_long_the_picture_went_on_changing_not_by_the_wait_for_its_frame(tmp_path):
+    """Run 6's page rests in its first frame under reduce motion (measured alone: no frame differs from the one before).
+    The check, drawing four visits at once in software, waited 9.5 s for that frame and reported the wait as the
+    page's motion: "after a scroll the picture still takes 9.5 s to come to rest (without the setting 2.2 s)"."""
+    rep = _report(tmp_path)
+    r, d = rep.visits["reduced"], rep.visits["desktop"]
+    r.probe, r.idle = {"reducedMotionQueried": True, "reducedMotionCss": True}, {"changed": False}
+    r.frame = str(tmp_path / "reduced.jpg")
+    d.steps[4].settle_s, d.steps[4].changing_s = 2.2, 1.1
+    r.steps = [sc.Step(0, 0.5, 400, settle_s=9.5, changing_s=0.0)]      # a long wait, then one frame that stays
+    line, handled = rep.reduced_line()
+    assert handled and "changing" not in line and "9.5" not in line, line
+    r.steps = [sc.Step(0, 0.5, 400, settle_s=2.0, changing_s=1.4)]      # smooth scrolling left on: it glides
+    line, handled = rep.reduced_line()
+    assert "still goes on changing for 1.4 s once it has drawn at the new place (without the setting 1.1 s)" in line, line
