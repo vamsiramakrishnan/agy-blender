@@ -80,3 +80,42 @@ def test_judge_shows_both_sites_blind_keeps_each_call_and_asks_again_only_for_ne
     sc.judge(sites, "build a site", out, ask, repeats=1)
     assert len(asked) == 5
     assert "plugin 1" in sc.table(res) or "stock 1" in sc.table(res)
+
+
+def _film(root: Path, name: str, colour: tuple[int, int, int], beats: int = 5) -> Path:
+    d = root / name
+    d.mkdir(parents=True)
+    for i in range(beats):
+        Image.new("RGB", (1440, 900), colour).save(d / f"desktop_b{i:02d}.jpg")
+    Image.new("RGB", (1440, 900), colour).save(d / "desktop_sheet.jpg")  # the contact sheet: not a beat
+    return d
+
+
+def test_stories_are_judged_beat_by_beat_on_criteria_of_their_own(tmp_path):
+    films = {"plugin": _film(tmp_path, "p", (200, 0, 0), 5), "stock": _film(tmp_path, "s", (0, 0, 200), 7)}
+    assert [p.name for p in sc.frames(films["stock"], kind="story")] == [f"desktop_b{i:02d}.jpg" for i in range(7)]
+    with pytest.raises(SystemExit):
+        sc.frames(films["stock"])  # a story's folder holds no frames of a scrolling site
+    asked = []
+
+    def ask(parts):
+        asked.append(parts)
+        text = " ".join(p for kind, p in parts if kind == "text")
+        assert "told beat by beat" in text and "one per beat in order" in text and "scroll" not in text
+        assert "plugin" not in text and "stock" not in text
+        assert sum(kind == "image" for kind, _ in parts) == 12
+        return {"criteria": {c: {"winner": "1" if c == "makes_its_case" else "tie", "reason": "r"} for c in sc.STORY_CRITERIA},
+                "overall": {"winner": "1", "reason": "r"}}
+
+    res = sc.judge(films, "tell a story", tmp_path / "out", ask, repeats=1, kind="story")
+    assert len(asked) == 2 and res["kind"] == "story" and res["criteria"] == list(sc.STORY_CRITERIA)
+    slot = res["aggregate"]["plugin vs stock"]
+    assert slot["votes"]["makes_its_case"] == {"plugin": 1, "stock": 1} and slot["result"]["words"] == "no majority"
+    assert "makes its case" in sc.table(res) and "craft of the 3d" not in sc.table(res)
+    assert set(sc.schema(sc.STORY_CRITERIA)["properties"]["criteria"]["required"]) == set(sc.STORY_CRITERIA)
+    assert sc.SCHEMA == sc.schema(sc.CRITERIA), "a site's answer is what it was"
+
+
+def test_a_call_is_sized_from_the_frames_it_shows():
+    assert sc.call_tokens([9, 9]) == sc.TOKENS_PER_CALL, "two sites of nine frames: as before"
+    assert sc.call_tokens([48, 30, 12]) == 78 * sc.TOKENS_PER_FRAME + 12_000, "the two longest stories meet in some call"
