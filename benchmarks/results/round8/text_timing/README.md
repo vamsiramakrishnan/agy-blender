@@ -1,4 +1,4 @@
-# When a chapter's text comes: one site, four timings, judged blind
+# When a chapter's text comes: two sites, one thing changed at a time, judged blind
 
 Controlled comparisons made after run 6 (`../../site_run6_plugin/`). In the main comparison every verdict on
 composition against run 6 names its frames 4 and 7, where the camera is between two shots and the starter shows no
@@ -7,7 +7,8 @@ transit was named in all thirteen composition verdicts against it. The question 
 better rule, on one site with nothing else changed? Run 6's project was built four more times, each differing from
 the agent's build only as the table says, and photographed by the plugin's check at nine desktop steps. The judge,
 the request and the six calls per pair (three in each order) are those of the main comparison
-(`../../../site_compare.py`, `../site_compare_corrected/request.txt`).
+(`../../../site_compare.py`, `../site_compare_corrected/request.txt`). Then the same question was put the other way
+round on run 4's site, whose cards stay up through the move: **the two sites give opposite answers** (below).
 
 | the site | a chapter's card | the camera's move takes | against as built, overall |
 |---|---|---|---|
@@ -70,6 +71,32 @@ unobstructed").
 | card at the middle, move 0.2 | as built | as built | [as built] clears the text card in frames 4 and 7 so the 3D subject can occupy the full stage unobstructed, whereas [card at the middle, move 0.2]'s left card overlaps the anchor rack in frames 4 and 5. | [as built] delivers a cleaner scroll choreography by fading out the UI cards during camera transitions so the 3D visualization is never occluded by text. |
 | card at the middle, move 0.2 | as built | as built | In [as built], frames 4 and 7 clear the UI card to give unobstructed, centered views of the 3D machinery during transitions, whereas [card at the middle, move 0.2]'s text panel overlaps the top-left of the 3D rack in frames 4 and 5. | Built from the same core assets and copy, [as built] wins by pacing its scroll transitions so that frames 4 and 7 present clean, unobstructed 3D compositions rather than letting the UI card overlap the machinery. |
 
+## The same question on run 4's site: the other answer
+
+Run 4's site (`../../site_run4_plugin/`) was built with the starter as it then was: a chapter's card is up from the
+chapter's first pixel, through the camera's move. It is the site the judge prefers to every other, and its stations
+stand on one line. It was rebuilt with the card hidden during the move, as the starter does now, and nothing else
+changed; the two builds differ in frames 4 and 7 only. **As built, with the card kept up, is preferred in five of
+six verdicts, and on composition in six of six**: "keeping the explanatory panel continuously visible during
+transitions rather than abruptly blanking out", "dead transition gaps". The one verdict for the hidden card names
+what the card covers ("letting UI cards overlap the 3D machinery or mismatch the active scene").
+
+| shown first | every position composed | overall | the judge's reason, every position composed | the judge's reason, overall |
+|---|---|---|---|---|
+| as built | as built | as built | [as built] maintains a complete, balanced composition with both the text card and 3D scene present in every frame, whereas [no card in a move] loses the text card entirely during transitions in frames 4 and 7. | [as built] delivers a smoother, uninterrupted scroll experience by keeping its explanatory UI cards consistently present alongside the 3D visualization in every frame, avoiding the empty left-side gaps seen in [no card in a move]. |
+| as built | as built | as built | [as built] keeps the left-hand narrative card pinned across every step (frames 4 and 7), whereas [no card in a move] drops the text card completely during transitions in frames 4 and 7, leaving an awkward empty void on the left. | While both sites share an identical 3D scene and visual design, [as built] keeps its explanatory text card consistently present across every scroll position rather than dropping out into empty space during transitions. |
+| as built | as built | as built | [as built] maintains a balanced composition with a persistent text card in every frame, whereas [no card in a move] drops the text card completely during transitions in frames 4 and 7, leaving an empty void on the left. | [as built] provides a smoother, uninterrupted reading and visual experience across the entire scroll without the jarring disappearance of explanatory cards seen in frames 4 and 7 of [no card in a move]. |
+| no card in a move | as built | as built | [as built] keeps its explanatory text card anchored and paired with the 3D scene across all frames, whereas [no card in a move] drops the UI card completely during transitions in frames 4 and 7, leaving large empty spaces on the left. | [as built] delivers a more continuous and composed scroll experience by keeping the explanatory UI cards visible across every scroll position rather than leaving dead transition gaps. |
+| no card in a move | as built | no card in a move | [as built] keeps its UI card continuously visible across transitions in frames 4 and 7, whereas [no card in a move] drops the text entirely and leaves the left side empty. | Although both versions share the same 3D scene and typography, [no card in a move] manages scroll transitions more cleanly by hiding text panels during close-up camera moves rather than letting UI cards overlap the 3D machinery or mismatch the active scene. |
+| no card in a move | as built | as built | [as built] maintains a complete UI-plus-3D composition across all steps, whereas [no card in a move] drops the UI card entirely in transitional frames 4 and 7. | Although nearly identical, [as built] provides a steadier scroll experience by keeping the explanatory panel continuously visible during transitions rather than abruptly blanking out. |
+
+![Run 4's site at frames 4 and 7 of 9: as built, and with no card during the move](timing_run4.jpg)
+
+By the check's measure, the card in run 6's frame 4 hides 56 % of the rack the camera is moving to, and the card in
+run 4's frame 7 hides 54 % of the vault it is leaving; in run 4's frame 4 nothing stands under it. So what the card
+covers does not sort the two answers by itself. What the verdicts say is that the judge of nine stills faults both
+things: a card over a machine, and a frame with no card.
+
 ## The faded card as a visitor meets it
 
 `run6_card_lines.txt` is the site as built, read in a browser: at fourteen places in each chapter the page is taken
@@ -118,8 +145,11 @@ chapter lands at 70 %. The chapter `start`, the page's call to action:
 
 ## What it shows
 
-- **No card while the camera moves stands.** Against a whole card over a picture in transit it is preferred in six of
-  six, for the reason the rule was made.
+- **Whether a card belongs over the camera's move is not settled.** On run 6's site no card is preferred in six of
+  six, for the reason the rule was made: the card covers the machine the camera is going to. On run 4's site the
+  card kept up is preferred in five of six: a still without its card reads as a gap. The starter still hides the
+  card during a move. That is a choice, not a finding, and the judge sees stills where a visitor sees a camera in
+  motion.
 - **Text half faded where a visitor can stop is a fault of its own**, and a stronger one: it turned a comparison of
   two near-identical sites into six of six, twice. The guide's example taught it.
 - **A frame with no card is not preferred to a held shot with its card** (three each). The complaint "drops its
@@ -135,6 +165,7 @@ where the film says and not where a sum over the chapter's height puts it.
 
 ## Limits
 
-- One judge, nine still frames of a desktop window, six calls per pair, one site.
+- One judge, nine still frames of a desktop window, six calls per pair, two sites and one question each way.
+- No judge has seen either timing in motion.
 - The length of the move was not read cleanly: the shorter move was only seen with the half-faded card (no card,
   move 0.2) or together with the other card rule (card at the middle, move 0.2).

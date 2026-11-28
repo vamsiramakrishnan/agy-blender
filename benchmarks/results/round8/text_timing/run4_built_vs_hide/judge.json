@@ -1,0 +1,248 @@
+{
+ "criteria": [
+  "every_position_composed",
+  "explains_the_project",
+  "craft_of_the_3d",
+  "type_and_layout"
+ ],
+ "size": "desktop",
+ "repeats_per_order": 3,
+ "sites": {
+  "built": "942e475c1cb9450d",
+  "hide": "1347cef1ba56e502"
+ },
+ "calls": [
+  {
+   "first": "hide",
+   "second": "built",
+   "rep": 2,
+   "frames": [
+    "1347cef1ba56e502",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 maintains a complete UI-plus-3D composition across all steps, whereas Site 1 drops the UI card entirely in transitional frames 4 and 7."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same clear 3D mechanical assembly line across frames 1-9 to illustrate log compression, local storage, and source anchoring."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites share the identical grounded, industrial 3D models, grid floor, and lighting across frames 1-9."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "By hiding the text panel during camera travel in frames 4 and 7, Site 1 prevents the text card from colliding with close-up 3D machinery as happens in Site 2's frame 7."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Although nearly identical, Site 2 provides a steadier scroll experience by keeping the explanatory panel continuously visible during transitions rather than abruptly blanking out."
+    }
+   }
+  },
+  {
+   "first": "hide",
+   "second": "built",
+   "rep": 0,
+   "frames": [
+    "1347cef1ba56e502",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 keeps its explanatory text card anchored and paired with the 3D scene across all frames, whereas Site 1 drops the UI card completely during transitions in frames 4 and 7, leaving large empty spaces on the left."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "While both share the same industrial press and caliper metaphors, Site 2 keeps the explanatory copy visible during intermediate scroll steps in frames 4 and 7 so the visual transitions stay contextualized."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same 3D models, materials, lighting, and grid floor across frames 1 through 9."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Both use identical typography and card styling, though Site 2 maintains a persistent left-hand text column in frames 4 and 7 instead of letting the layout vanish mid-scroll like Site 1 (note both have a minor typo 'ONE20,001-LINE' in frame 1)."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Site 2 delivers a more continuous and composed scroll experience by keeping the explanatory UI cards visible across every scroll position rather than leaving dead transition gaps."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "hide",
+   "rep": 2,
+   "frames": [
+    "942e475c1cb9450d",
+    "1347cef1ba56e502"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 maintains a balanced composition with a persistent text card in every frame, whereas Site 2 drops the text card completely during transitions in frames 4 and 7, leaving an empty void on the left."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "While both share the same industrial machine metaphor, Site 1 keeps the explanatory text visible in frames 4 and 7 so the visitor always has context for what the 3D press and caliper are doing."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same grounded 3D scene, industrial materials, lighting, and gridded floor across all frames from 1 to 9."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Both use the same clean typography and left-aligned card layout, though in Site 1 frame 7 the card stays visible and slightly overlaps the background machine, while Site 2 hides the card entirely in frames 4 and 7, disrupting reading continuity."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Site 1 provides a smoother, uninterrupted reading and visual experience across the entire scroll without the jarring disappearance of explanatory cards seen in frames 4 and 7 of Site 2."
+    }
+   }
+  },
+  {
+   "first": "hide",
+   "second": "built",
+   "rep": 1,
+   "frames": [
+    "1347cef1ba56e502",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 keeps its UI card continuously visible across transitions in frames 4 and 7, whereas Site 1 drops the text entirely and leaves the left side empty."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the identical 3D factory metaphor across frames 1 to 9 to clearly illustrate log compression, local storage, anchored ranges, and multi-harness gates."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same well-crafted, grounded 3D machinery, materials, and lighting throughout frames 1 to 9."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "While typography is identical, Site 1 hides the left text panel during close-up transitions in frame 7 so it does not collide with the 3D model as it does in Site 2's frame 7."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Although both versions share the same 3D scene and typography, Site 1 manages scroll transitions more cleanly by hiding text panels during close-up camera moves rather than letting UI cards overlap the 3D machinery or mismatch the active scene."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "hide",
+   "rep": 0,
+   "frames": [
+    "942e475c1cb9450d",
+    "1347cef1ba56e502"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 maintains a complete, balanced composition with both the text card and 3D scene present in every frame, whereas Site 2 loses the text card entirely during transitions in frames 4 and 7."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "While both sites share the same clear 3D factory metaphor across frames 1-9, Site 1 keeps the explanatory text visible in frames 4 and 7 so the 3D action is always paired with its explanation."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same 3D scene, industrial materials, lighting, and grounded grid across frames 1 through 9."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Site 1 keeps its clean, readable left-hand info panel consistently anchored in frames 4 and 7, whereas Site 2 drops the panel out of the layout at those scroll steps."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Site 1 delivers a smoother, uninterrupted scroll experience by keeping its explanatory UI cards consistently present alongside the 3D visualization in every frame, avoiding the empty left-side gaps seen in Site 2."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "hide",
+   "rep": 1,
+   "frames": [
+    "942e475c1cb9450d",
+    "1347cef1ba56e502"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 keeps the left-hand narrative card pinned across every step (frames 4 and 7), whereas Site 2 drops the text card completely during transitions in frames 4 and 7, leaving an awkward empty void on the left."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "Because Site 1 maintains its explanatory card alongside the 3D press and caliper animations in frames 4 and 7, the visitor can always read what the machine is doing, whereas Site 2 loses the explanation mid-scroll in frames 4 and 7."
+     },
+     "craft_of_the_3d": {
+      "winner": "tie",
+      "reason": "Both sites render the exact same 3D industrial assembly line, materials, lighting, and grounded grid across frames 1 through 9."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Both sites share the same typography and card design, though Site 1 keeps the layout consistent in frames 4 and 7 instead of letting the text panel vanish."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "While both sites share an identical 3D scene and visual design, Site 1 keeps its explanatory text card consistently present across every scroll position rather than dropping out into empty space during transitions."
+    }
+   }
+  }
+ ],
+ "aggregate": {
+  "built vs hide": {
+   "votes": {
+    "every_position_composed": {
+     "built": 6
+    },
+    "explains_the_project": {
+     "built": 4,
+     "tie": 2
+    },
+    "craft_of_the_3d": {
+     "tie": 6
+    },
+    "type_and_layout": {
+     "built": 4,
+     "hide": 2
+    },
+    "overall": {
+     "built": 5,
+     "hide": 1
+    }
+   },
+   "calls": 6,
+   "result": {
+    "every_position_composed": "built",
+    "explains_the_project": "built",
+    "craft_of_the_3d": "no majority",
+    "type_and_layout": "built",
+    "overall": "built"
+   }
+  }
+ },
+ "model": "gemini-4-carbon",
+ "thinking": "low"
+}

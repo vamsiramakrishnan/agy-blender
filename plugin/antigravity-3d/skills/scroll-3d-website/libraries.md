@@ -177,8 +177,9 @@ the colour is compressed towards white. At F = 2 that is every channel above abo
   float. Run 6's floor was the design's #15181D, which shows at 19; the same site rebuilt with the floor at 61 and
   nothing else changed was preferred by a blind judge in five of six verdicts ("the near-black floor swallows the
   shadows and leaves the dark navy machines floating"), and the floor at 61 was preferred to one at 91 in six of
-  six, where the labels and cards read worse (`benchmarks/results/round8/floor_compare/`). Runs 4, 5 and 6 all had
-  the dark floor, because this guide asked for a ground in the page's colour.
+  six, where the labels and cards read worse; run 4's site, asked the same way, gave the same five of six
+  (`benchmarks/results/round8/floor_compare/`). Runs 4, 5 and 6 all had the dark floor, because this guide asked
+  for a ground in the page's colour.
 - The ground must not be washed out by the light the props need: give a ground material the starter's
   `groundLook(scene, colour)` (stage.js). It divides the colour by what a face turned up receives and has the
   ground take the environment at 0.25. Both matter: most of what a dark floor shows is the environment's reflection

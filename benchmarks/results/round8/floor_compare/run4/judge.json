@@ -1,0 +1,249 @@
+{
+ "criteria": [
+  "every_position_composed",
+  "explains_the_project",
+  "craft_of_the_3d",
+  "type_and_layout"
+ ],
+ "size": "desktop",
+ "repeats_per_order": 3,
+ "sites": {
+  "built": "942e475c1cb9450d",
+  "floor55": "6e11103fbb40f311"
+ },
+ "calls": [
+  {
+   "first": "floor55",
+   "second": "built",
+   "rep": 2,
+   "frames": [
+    "6e11103fbb40f311",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use identical camera paths and staging across frames 1 through 9, keeping the 3D subjects well-framed to the right of the text cards."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D factory metaphors\u2014such as the log press in frame 3 and anchor caliper in frame 6\u2014to illustrate Straitjacket's workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "In frames 1 through 9, the second site's darker floor grid creates better contrast with the dark machinery and glowing progress lines, whereas the first site's brighter grey floor washes out the scene's depth."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "While typography and card layouts are identical across frames 1 to 9, the second site's darker background integrates more seamlessly with the dark UI cards."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Both sites share identical layouts, copy, and 3D models, but the second site's darker environment and subtle grid provide superior contrast and visual cohesion for the 3D pipeline."
+    }
+   }
+  },
+  {
+   "first": "floor55",
+   "second": "built",
+   "rep": 0,
+   "frames": [
+    "6e11103fbb40f311",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites feature identical camera paths and staging from frame 1 through frame 9."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D assembly-line metaphor across frames 1 to 9 to illustrate log compression, storage, and line anchoring."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "In frames 1 through 9, the lighter slate floor of site 1 makes contact shadows and the dark machine frames clearly visible, whereas site 2's dark floor swallows the dark metalwork."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Across frames 1 to 9, site 2's darker, lower-contrast floor grid reduces background clutter and blends more seamlessly with the dark UI cards."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Although the two sites are nearly identical in layout and animation, site 1's brighter floor plane grounds the dark 3D machinery and preserves its silhouette and shadows much better."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "floor55",
+   "rep": 2,
+   "frames": [
+    "942e475c1cb9450d",
+    "6e11103fbb40f311"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same camera choreography and framing across frames 1 to 9, keeping the 3D pipeline clearly composed on the right of the left-hand card."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "While both share the same instructional 3D assembly line, the second site's brighter floor lighting makes dark machine details like the press frame and cabinet drawers in frames 1, 4, and 5 much easier to read."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "In frames 1 through 9, the second site's lighter slate floor plane reveals crisp cast shadows and grounds the dark industrial machinery far better than the near-black floor in the first site, where dark bases blend into the background."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Typography, hierarchy, and card layout are identical across all 9 frames on both sites, though both have a missing space in 'ONE20,001-LINE' on the button in frames 1 and 2."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Both sites share the same strong 3D mechanical metaphor and layout, but the second site's lighter floor surface makes shadows, depth, and dark 3D machine forms much clearer and better grounded throughout the scroll."
+    }
+   }
+  },
+  {
+   "first": "floor55",
+   "second": "built",
+   "rep": 1,
+   "frames": [
+    "6e11103fbb40f311",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera framing and scroll choreography across frames 1 through 9."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "In frames 1, 4, and 5, the lighter slate floor on Site 1 separates the dark machinery from the background so the visual metaphor is legible."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "In frames 1, 3, and 9, Site 1's lighter floor catches contact shadows and grounds the dark industrial frames, whereas Site 2's dark floor blends into the black metal."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Across frames 1 to 9, Site 2's subtler dark grid keeps visual noise low behind the left-aligned text card while sharing identical typography."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Although the two sites are nearly identical, Site 1's lighter floor plane gives the dark 3D machinery essential contrast, contact shadows, and spatial legibility."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "floor55",
+   "rep": 0,
+   "frames": [
+    "942e475c1cb9450d",
+    "6e11103fbb40f311"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same camera choreography and framing from frames 1 through 9, keeping the 3D machinery in view to the right of the left-aligned text card."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use identical 3D factory metaphors\u2014such as the containment press in frame 3, drawer vault in frame 5, and caliper in frame 6\u2014to illustrate Straitjacket's workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "In frames 1 through 9, the second site's lighter slate floor makes cast shadows and the dark metal frames of the machinery clearly visible and grounded, whereas they blend into the pitch-dark floor on the first site."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites share identical typography, UI hierarchy, and left-docked panel layouts across all frames from 1 to 9."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share the exact same layout, text, and 3D models, the second site's brighter, higher-contrast floor material grounds the dark machinery with visible shadows and makes the 3D visualization much easier to read."
+    }
+   }
+  },
+  {
+   "first": "built",
+   "second": "floor55",
+   "rep": 1,
+   "frames": [
+    "942e475c1cb9450d",
+    "6e11103fbb40f311"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same camera choreography across frames 1 to 9, keeping the 3D machinery in the right two-thirds of the viewport while the left card updates cleanly."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "While both share the same helpful assembly-line metaphor in frames 1 to 9, the lighter floor and ambient fill in the second site make dark mechanical details like the storage drawers in frame 5 and the seven lanes in frame 8 easier to see and understand."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Across frames 1 to 9, the second site's lighter slate floor plane makes cast contact shadows clearly visible beneath the press, cabinet, and manifold, grounding the dark metal machinery much better than the near-black floor of the first site."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Frames 1 to 9 feature identical typography, card hierarchy, and left-aligned layout on both sites, leaving generous space for the 3D scene."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Although both sites share the same layout and 3D assembly-line concept, the second site's brighter slate floor and improved lighting reveal contact shadows and dark mechanical details that get lost against the pitch-black floor of the first site."
+    }
+   }
+  }
+ ],
+ "aggregate": {
+  "built vs floor55": {
+   "votes": {
+    "every_position_composed": {
+     "tie": 6
+    },
+    "explains_the_project": {
+     "floor55": 3,
+     "tie": 3
+    },
+    "craft_of_the_3d": {
+     "built": 1,
+     "floor55": 5
+    },
+    "type_and_layout": {
+     "built": 3,
+     "tie": 3
+    },
+    "overall": {
+     "built": 1,
+     "floor55": 5
+    }
+   },
+   "calls": 6,
+   "result": {
+    "every_position_composed": "no majority",
+    "explains_the_project": "no majority",
+    "craft_of_the_3d": "floor55",
+    "type_and_layout": "no majority",
+    "overall": "floor55"
+   }
+  }
+ },
+ "model": "gemini-4-carbon",
+ "thinking": "low"
+}

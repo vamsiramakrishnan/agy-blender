@@ -1,4 +1,4 @@
-# One site on three floors, judged blind
+# One site on three floors, and a second site on two, judged blind
 
 A controlled comparison made after run 6 (`../../site_run6_plugin/`), to find out whether the floor is why a blind
 judge calls the 3D of runs 4, 5 and 6 "dark", "flat" and "floating" (`../site_compare_corrected/verdicts.md`). Run 6's
@@ -60,10 +60,29 @@ the floor differs. Each call is in `calls/`, the totals in `judge.json` (there t
 | floor 91 | floor 61 | floor 61 | While the 3D models and animations are identical, [floor 61] renders the ground grid and ambient scene in frames 1 through 9 with a slightly deeper, cleaner slate contrast than the washed-out grey in [floor 91]. | Although both sites appear to be nearly identical builds with the same 3D models, camera choreography, and layout, [floor 61] has slightly richer contrast and darker ground shading that makes the 3D scene pop better. |
 | floor 91 | floor 61 | floor 61 | [floor 61] renders a slightly darker, richer floor plane in frames 4 through 8 that improves contrast and grounds the shadows and glowing floor lines better than [floor 91]. | While the two sites are nearly identical in layout, typography, and 3D choreography, [floor 61] edges ahead with slightly deeper floor shading that gives the 3D machinery and data lanes better contrast. |
 
+## The same on run 4's site
+
+Run 4's site (`../../site_run4_plugin/`) is the one the judge prefers to every other, and its floor shows at 16 of
+255. It was rebuilt with the three floor colours of its shader (base, bench and grid; not its coloured rail)
+multiplied by 6.6 and nothing else changed: the floor then shows at 55 (52 to 58 in the seven frames where the
+floor fills the lowest quarter). **The lit floor is preferred in five of six verdicts, overall and on craft**, as on
+run 6's site, and for the same reason. Its calls are in `run4/`.
+
+| shown first | craft of the 3D | overall | the judge's reason, craft of the 3D | the judge's reason, overall |
+|---|---|---|---|---|
+| as built | floor 55 | floor 55 | In frames 1 through 9, [floor 55]'s lighter slate floor makes cast shadows and the dark metal frames of the machinery clearly visible and grounded, whereas they blend into the pitch-dark floor on [as built]. | While both sites share the exact same layout, text, and 3D models, [floor 55]'s brighter, higher-contrast floor material grounds the dark machinery with visible shadows and makes the 3D visualization much easier to read. |
+| as built | floor 55 | floor 55 | Across frames 1 to 9, [floor 55]'s lighter slate floor plane makes cast contact shadows clearly visible beneath the press, cabinet, and manifold, grounding the dark metal machinery much better than the near-black floor of [as built]. | Although both sites share the same layout and 3D assembly-line concept, [floor 55]'s brighter slate floor and improved lighting reveal contact shadows and dark mechanical details that get lost against the pitch-black floor of [as built]. |
+| as built | floor 55 | floor 55 | In frames 1 through 9, [floor 55]'s lighter slate floor plane reveals crisp cast shadows and grounds the dark industrial machinery far better than the near-black floor in [as built], where dark bases blend into the background. | Both sites share the same strong 3D mechanical metaphor and layout, but [floor 55]'s lighter floor surface makes shadows, depth, and dark 3D machine forms much clearer and better grounded throughout the scroll. |
+| floor 55 | floor 55 | floor 55 | In frames 1 through 9, the lighter slate floor of [floor 55] makes contact shadows and the dark machine frames clearly visible, whereas [as built]'s dark floor swallows the dark metalwork. | Although the two sites are nearly identical in layout and animation, [floor 55]'s brighter floor plane grounds the dark 3D machinery and preserves its silhouette and shadows much better. |
+| floor 55 | floor 55 | floor 55 | In frames 1, 3, and 9, [floor 55]'s lighter floor catches contact shadows and grounds the dark industrial frames, whereas [as built]'s dark floor blends into the black metal. | Although the two sites are nearly identical, [floor 55]'s lighter floor plane gives the dark 3D machinery essential contrast, contact shadows, and spatial legibility. |
+| floor 55 | as built | as built | In frames 1 through 9, [as built]'s darker floor grid creates better contrast with the dark machinery and glowing progress lines, whereas [floor 55]'s brighter grey floor washes out the scene's depth. | Both sites share identical layouts, copy, and 3D models, but [as built]'s darker environment and subtle grid provide superior contrast and visual cohesion for the 3D pipeline. |
+
+![Run 4's site at steps 3 and 5 of 9: as built, and with its floor lit](floors_run4.jpg)
+
 ## What it shows
 
-- **A floor as dark as the page costs the 3D its ground.** Eleven of twelve verdicts prefer the same site with a lit
-  floor, and they say why: a lit floor "catches cast shadows and grounds the dark machinery", the near-black one
+- **A floor as dark as the page costs the 3D its ground.** On run 6's site eleven of twelve verdicts prefer the
+  same site with a lit floor, on run 4's five of six, and they say why: a lit floor "catches cast shadows and grounds the dark machinery", the near-black one
   "swallows the shadows and leaves the dark navy machines floating". A shadow cannot darken a surface that is already
   as dark as the page.
 - **More is not better.** Floor 61 is preferred to floor 91 in six of six, and against floor 91 the page's type wins
@@ -91,7 +110,7 @@ the hero's shadow against the floor beside it.
 
 ## Limits
 
-- One judge, nine still frames of a desktop window, six calls per pair, one site.
+- One judge, nine still frames of a desktop window, six calls per pair, two sites.
 - The variants scale the floor's colours; they do not retune its grid, which gains contrast with the floor (one
   verdict against floor 61 and all six "type and layout" verdicts against floor 91 name the grid, the noise or the
   glare).

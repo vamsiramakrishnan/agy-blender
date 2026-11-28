@@ -110,9 +110,12 @@ excuse a travelling camera while the chapter's text is up, a skill that asked fo
 and a guide that asked for a floor as dark as the page; and on every site built on the starter the first notch of
 a mouse wheel moved the picture by a third of a pixel or less. After the sixth run what its verdicts name was put
 to the judge one thing at a time, on the same site: with
-its floor lit it is preferred to itself in eleven of twelve verdicts; no text card while the camera moves is the
-better rule, six of six; and a card whose text is half faded where a visitor stops, which the guide's own example
-taught, loses six of six. These are corrected and tested, and no site has been built with them yet. The same
+its floor lit it is preferred to itself in eleven of twelve verdicts (and the fourth run's site, asked the same,
+in five of six); and a card whose text is half faded where a
+visitor stops, which the guide's own example taught, loses six of six. Whether a text card belongs over the
+camera's move got opposite answers on two sites (six of six against it on the sixth run's, five of six for it on
+the fourth's) and is left as it was. The floor and the text's entrance are corrected and tested, and no site has
+been built with them yet. The same
 request without the plugin took half the model calls and tokens (37 and 5.0 M against 64 to 81 and 8.0 to 11.2 M)
 and gave a site the judge placed below the plugin's second to sixth in all thirty verdicts, for objects that
 float where the plugin's stand on a floor and for text over its 3D; the site check adds that it shows nothing

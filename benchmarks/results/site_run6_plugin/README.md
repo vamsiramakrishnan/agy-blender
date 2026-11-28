@@ -90,8 +90,8 @@ nothing else changed (`../round8/floor_compare/`, `../round8/text_timing/`); wha
 - **Every composition verdict against it names frames 4 and 7, where there is no text card.** Those are the camera's
   moves, and since run 5 the starter shows no card during a move ("drops its text overlays mid-transition"). Put
   to the judge on this site: a card that stays up through the move loses to no card in six of six ("the 3D anchor
-  rack is not covered by the overlay"), so the rule stands; and a held shot with its card is not preferred to a
-  frame without one (three each). Seven of the ten also name frame 5, where the card lies over a machine that is
+  rack is not covered by the overlay"). The same question on run 4's site went the other way, five of six for the
+  card kept up, so the rule is not settled (`../round8/text_timing/`). Seven of the ten also name frame 5, where the card lies over a machine that is
   not the shot's subject, and three name frame 8, where a machine in the foreground is cut by the frame. The check
   names neither.
 - **A card's text is half faded wherever a visitor stops just after the camera arrives, and the last card is all

@@ -47,10 +47,12 @@ starter, moves 3.4 px.
 **What the verdicts name in run 6 was put to the judge one thing at a time, and two of the three were the
 plugin's.** Run 6's site was rebuilt with one thing changed and judged against itself as built. Its floor is as dark
 as its page, because the starter and the guide asked for a ground in the page's colour: with the floor lit the
-same site is preferred in eleven of twelve verdicts, and a moderately lit floor to a bright one in six of six
-(`results/round8/floor_compare/`). Its frames without a text card, which every composition verdict against it
-names, are the rule made after run 5, and the rule stands: a card kept up while the camera moves loses in six of
-six (`results/round8/text_timing/`). The third nobody had asked about. Where a build's text entrance left a card
+same site is preferred in eleven of twelve verdicts, a moderately lit floor to a bright one in six of six, and run
+4's site with its floor lit in five of six (`results/round8/floor_compare/`). Its frames without a text card, which every composition verdict against it
+names, are the rule made after run 5. On this site the rule is right: a card kept up while the camera moves loses
+in six of six. On run 4's site, asked the other way round, it is wrong: the card kept up wins in five of six
+(`results/round8/text_timing/`). The starter still hides the card; which is better is not settled, and it is listed
+under the decisions. The third nobody had asked about. Where a build's text entrance left a card
 half faded at a photographed step, the judge chose the other build in six of six, twice, for that card. The
 entrance is the guide's own example, scrubbed to the scroll: read in a browser, run 6's cards are part way for the
 first quarter of every hold, and its last card, the call to action, is all but empty where its menu link lands.
@@ -769,16 +771,21 @@ in each order). Three things came out of it.
   light, the verdicts named "grounded floor shadows", and I filed that under the comparison's limits. Now the
   starter's ground is a slate that shows at 60 to 63 near the camera, the fog still takes it to the page's colour
   at the horizon, and the guide says what a ground is for and that the design's card colour is not it
-  (`results/round8/floor_compare/`). On the starter the hero's shadow is now 30 levels under the floor round it,
+  (`results/round8/floor_compare/`). Asked again on a second site, the answer was the same: run 4's site with
+  only its floor lit (55 for 16) is preferred to itself as built in five of six verdicts. On the starter the hero's shadow is now 30 levels under the floor round it,
   where it was 12 under a floor at 24.
-- **No card while the camera moves is the better rule.** All ten composition verdicts against run 6 name its
-  frames 4 and 7, the camera's moves, where the starter shows no card since run 5 ("drops its text overlays
-  mid-transition"). Rebuilt with the card up from the start of the move, as the starter had it in runs 2 to 5, the
-  site loses to itself as built in six of six ("hides the left-hand card during camera transitions so the Anchor
-  Rack is never obscured"). Rebuilt so that those frames show a held shot with its card (a shorter move, the cards
-  changing at its middle), it draws three each, by the order shown. So the rule stands, and the complaint is about
-  how much of the scroll has no text, which the length of the move sets (`MOVE`, 0.35 of a chapter); that was not
-  read cleanly and is not changed (`results/round8/text_timing/`).
+- **Whether a card belongs over the camera's move got two answers.** All ten composition verdicts against run 6
+  name its frames 4 and 7, the camera's moves, where the starter shows no card since run 5 ("drops its text
+  overlays mid-transition"). Rebuilt with the card up from the start of the move, as the starter had it in runs 2
+  to 5, the site loses to itself as built in six of six ("hides the left-hand card during camera transitions so
+  the Anchor Rack is never obscured"). I wrote "the rule stands" on that, and then asked the same question the
+  other way round on run 4's site, whose cards stay up and whose stations stand on a line: rebuilt with the card
+  hidden during the move, it loses to itself as built in five of six, and on composition in six of six ("keeping
+  the explanatory panel continuously visible during transitions rather than abruptly blanking out"). The judge of
+  stills faults a card over a machine and faults a frame without a card; by the check's measure the card hides 56 %
+  of a machine in run 6's frame and 54 % in one of run 4's two, so what it covers does not sort the answers. The
+  starter still shows no card during a move. That is a choice and not a finding, and no judge has seen either
+  timing in motion (`results/round8/text_timing/`).
 - **A card half faded at rest is a fault of its own, and the guide taught it.** Two of those comparisons went six
   to none for a reason that was not their question: "illegible faded text", "half-faded text panel", in every
   verdict. Run 6's agent brought each card's lines in with a GSAP stagger tied to the scroll (`scrub`), over the
@@ -867,9 +874,10 @@ levels.
   six on that criterion over runs 5 and 6. Its storyboard follows one log through a line of open machines. Runs 5
   and 6 answered the same skill with stations at angles and with three machines in a cluster; the skill now says
   where the stations stand, and nothing has been built since.
-- **Part of every chapter has no text**: the camera's move, 0.35 of a chapter. The judge names those frames in
-  every composition verdict against run 6 and still prefers them to a card over a picture in transit. Whether a
-  shorter move is better was not read cleanly.
+- **Part of every chapter has no text, and whether that is right is open**: the camera's move, 0.35 of a chapter.
+  The judge names those frames in every composition verdict against run 6; on run 6's site it prefers them to a
+  card over the picture in transit (six of six), and on run 4's site it prefers the card (five of six). Whether a
+  shorter move is better was not read cleanly either.
 - **The check does not name a text card that lies over a machine which is not the shot's subject, or a machine in
   the foreground cut by the frame**: seven and three of the ten composition verdicts against run 6. A rule for it
   was looked at and not written: by the check's own measures run 4's site, the judge's choice, has larger props
@@ -957,11 +965,16 @@ levels.
    lighter than its hex, which the review of run 3 objected to; exact colours are unlit or emissive, and the
    ground is held by other means. Yours to reverse: three numbers.
 7. **The starter's ground is a lit slate** (`--ground: #474e5a` in the starter's `style.css`, about 60 of 255 near
-   the camera on a page at 18). One controlled comparison on one site is behind it, eleven of twelve verdicts for a
-   lit floor and six of six for this level over a brighter one. It leaves the design page's palette: Straitjacket's
+   the camera on a page at 18). Controlled comparisons on two sites are behind it: sixteen of eighteen verdicts for
+   a lit floor, and six of six for this level over a brighter one. It leaves the design page's palette: Straitjacket's
    has no such slate, and the guide now tells an agent not to use the design's card colour for the ground. Yours to
    reverse: one colour.
-8. **A critic for the site, not only a checker.** The props have one: a model looks at renders and says what is
+8. **The starter shows no text card while the camera moves.** Two sites, opposite answers: on run 6's the same
+   site with the card kept up loses in six of six, on run 4's it wins in five of six. A card can cover a machine;
+   a still without its card reads as a gap. I have left the starter as it is: the judge sees stills where a
+   visitor sees the camera moving under the text, and a card that is not there cannot cover a machine. Yours to
+   reverse: one selector in the starter's `style.css` (`.webgl-on:not(.is-moving)`).
+9. **A critic for the site, not only a checker.** The props have one: a model looks at renders and says what is
    weak. The site has none. The same could be done for a built site: a model looks at the contact sheets against
    a fixed set of questions (is the subject in frame and not cut by the text, does the picture explain the
    chapter, do the objects look made and lit) and answers with findings that name frames. It costs model calls,
@@ -996,6 +1009,10 @@ levels.
 - **A rollback I read past.** Run 5's log has "ROLLED BACK TIER1 FAIL: draws 6>4" too. I recorded it in that run's
   account as one of two failed modelling calls and did not ask why a prop that ships one draw call was refused for
   six.
+- **"The rule stands", written from one site.** Run 6's site preferred no card during the camera's move in six of
+  six, and I put that sentence into a commit message, the pull request and this report. The same question on run
+  4's site, asked two hours later, went five to one the other way. One site, one direction, is what the comparison
+  of two lights had too, and I named it there as a limit and then did not act as if it were one.
 - **The baseline was left to the end.** It was to run after the plugin arm and after that site had been
   published for the owner. By then the model service was failing, so it came last, after three plugin runs and two
   rounds of corrections that it could have informed. What it shows about cost was there to be seen on the first
@@ -1062,9 +1079,11 @@ levels.
 - **The blind comparison.** Six calls through `benchmarks/site_compare.py` on the first frames, each kept with its
   reasons (`results/round8/site_compare/`), 126 on the corrected frames of the seven sites
   (`results/round8/site_compare_corrected/`), twelve on two sites under two lights
-  (`results/round8/rig_compare/`), eighteen on one site on three floors (`results/round8/floor_compare/`) and
-  twenty-four on one site under four timings of its text (`results/round8/text_timing/`). Many were refused at
-  least once by a busy service and asked again; a kept verdict was never asked twice.
+  (`results/round8/rig_compare/`), twenty-four on the floor, eighteen on run 6's site on three floors and six on
+  run 4's (`results/round8/floor_compare/`), and
+  thirty on the timing of the text, twenty-four on run 6's site and six on run 4's
+  (`results/round8/text_timing/`). Many were refused at least once by a busy service and asked again; a kept
+  verdict was never asked twice.
 - **The stock agent's site.** Checked three times: once by the harness as the run ended, with the check as it was
   at the run's commit, and twice with the current check from a copy of the built folder. The measures in this
   report are from the current check; the uncaught error was seen in the first of the three only.
@@ -1107,8 +1126,8 @@ levels.
   broken, 0 things, the first notch 3.4 px. Its cards' lines were read in a browser at fourteen places per chapter
   (`results/round8/text_timing/run6_card_lines.txt`). The hosted copy was checked against the agent's build: the
   same 58 draw calls and 216,175 triangles, no pixel more than 24 levels apart.
-- **The corrections made after run 6.** The ground: the floors of all runs measured one way, eighteen blind
-  verdicts, the starter's floor, horizon and shadow read from its pixels before and after, and a test that fails
+- **The corrections made after run 6.** The ground: the floors of all runs measured one way, twenty-four blind
+  verdicts on two sites, the starter's floor, horizon and shadow read from its pixels before and after, and a test that fails
   on the ground as it was. The text: the new example and run 6's version both run on the starter against the
   example's check (the first passes, the second fails), and a starter test of `scrollAt`. The draw calls: eight
   scenes built end to end, the prediction held to the package's count, and run 6's rolled-back call replayed. The

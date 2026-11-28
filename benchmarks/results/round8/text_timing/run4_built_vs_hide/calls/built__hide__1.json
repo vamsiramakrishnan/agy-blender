@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "hide",
+ "rep": 1,
+ "frames": [
+  "942e475c1cb9450d",
+  "1347cef1ba56e502"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the left-hand narrative card pinned across every step (frames 4 and 7), whereas Site 2 drops the text card completely during transitions in frames 4 and 7, leaving an awkward empty void on the left."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Because Site 1 maintains its explanatory card alongside the 3D press and caliper animations in frames 4 and 7, the visitor can always read what the machine is doing, whereas Site 2 loses the explanation mid-scroll in frames 4 and 7."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the exact same 3D industrial assembly line, materials, lighting, and grounded grid across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Both sites share the same typography and card design, though Site 1 keeps the layout consistent in frames 4 and 7 instead of letting the text panel vanish."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "While both sites share an identical 3D scene and visual design, Site 1 keeps its explanatory text card consistently present across every scroll position rather than dropping out into empty space during transitions."
+  }
+ }
+}
