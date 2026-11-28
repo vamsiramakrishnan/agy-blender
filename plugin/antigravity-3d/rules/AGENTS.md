@@ -162,7 +162,10 @@ control when the user asks for it.
 
 Default studio budget per asset: at most 15,000 triangles, 4 draw calls,
 1024 px/m texel density, UV stretch at most 0.05, 8 collision hulls,
-manifold geometry. Per-engine limits are in `engine-budgets.md`. The session's
+manifold geometry. A draw call is a material as it ships, not a material as it
+is named: every opaque material shares one atlas and one draw call, however
+many there are; a see-through material adds one, and so does each different
+emissive strength, coat or sheen. Per-engine limits are in `engine-budgets.md`. The session's
 budget is set by `open_asset_session` (target engine and `max_tris`); a
 `budget.json` in the project's `.agy3d/` folder is read only by the SessionStart
 hook, which shows it.

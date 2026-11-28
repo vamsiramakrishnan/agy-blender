@@ -1654,8 +1654,10 @@ def script_critical(issue: Any, stats: dict[str, Any]) -> str:
     if issue.code == "tri_budget":
         return f"it makes {stats.get('tris', '?'):,} triangles and the budget is {stats.get('max_tris', '?'):,} (max_tris in the Asset line)"
     if issue.code == "draw_call_budget":
-        return (f"it needs {stats.get('draw_calls')} draw calls and the engine allows {stats.get('max_draw_calls')}: use "
-                "fewer materials")
+        return (f"it needs {stats.get('draw_calls')} draw calls and the budget is {stats.get('max_draw_calls')}: opaque "
+                "materials that differ only in colour, roughness, metal or their maps share one, so the extra ones come from "
+                "see-through materials and from materials with an emissive strength, coat or sheen of their own. Use fewer of "
+                "those")
     what = _CRITICAL_WORDS.get(issue.code, issue.code.replace("_", " "))
     return (f"{issue.node_id} {what}" if issue.node_id else what) + (f" ({issue.detail})" if issue.detail else "")
 

@@ -140,13 +140,22 @@ async def test_a_refused_budget_change_is_put_back(ws):
     assert "raise max_tris in the script's Asset line; nothing was applied; session " in r and set(host.last_timings) == {"script"}
     assert "TIER1" not in r and "warn:" not in r
     assert snapshot(host) == before
-    # a fault the count cannot see (more draw calls than the engine allows) is refused after the check, in script words
+    # a fault the count cannot see (an edge three faces share) is refused after the check, in script words
+    r = await build(host, ws, write(ws, crate(extra=THREE_FACES_ON_AN_EDGE)))
+    assert r.startswith("NOT BUILT: crate.py makes a design the engine would reject: fin non manifold (1 edges shared by >2 "
+                        "faces). Change those parts") and "its earlier design stays" in r, r
+    assert "TIER1" not in r and snapshot(host) == before
+    # Five materials are no such fault. They were until run 6 of the website task: "it needs 5 draw calls and the engine
+    # allows 4: use fewer materials", for a design whose package ships one draw call.
     five = crate(extra="".join(f'm{k} = a.material("m{k}", "#{k}0{k}0{k}0")\na.box("b{k}", size=(0.1, 0.1, 0.1), '
                                f'bottom=({k * 0.15 - 0.3}, 0, 0.6), material=m{k})\n' for k in range(1, 4)))
     r = await build(host, ws, write(ws, five))
-    assert r.startswith("NOT BUILT: crate.py makes a design the engine would reject: it needs 5 draw calls and the engine "
-                        "allows 4: use fewer materials. Change those parts") and "its earlier design stays" in r, r
-    assert "TIER1" not in r and snapshot(host) == before
+    assert r.split("\n")[0].endswith("6 parts, 5 materials, draws=1)"), r
+    from antigravity3d.harness import tools as T
+    from antigravity3d.kernel.fast_ops import Issue
+
+    said = T.script_critical(Issue("draw_call_budget", "critical", None, ""), {"draw_calls": 5, "max_draw_calls": 4})
+    assert said.startswith("it needs 5 draw calls and the budget is 4: opaque materials that differ only in colour") and "see-through" in said
 
 
 SCRIPT_ERRORS = [
@@ -389,8 +398,9 @@ async def test_the_opening_reply_of_a_preview_without_images_speaks_of_the_scrip
     assert all(p.stat().st_size <= T.INLINE_IMAGE_BYTES for _, p in r.images)
 
 
-FIVE_MATERIALS = "".join(f'm{k} = a.material("m{k}", "#{k}0{k}0{k}0")\na.box("b{k}", size=(0.1, 0.1, 0.1), bottom=({k * 0.15 - 0.3}, 0, 0.6), material=m{k})\n'
-                         for k in range(1, 4))
+# a tetrahedron with one more face on one of its edges: a fault the kernel refuses after it has built the design
+THREE_FACES_ON_AN_EDGE = ('a.mesh("fin", [(0, 0, 0), (0.1, 0, 0), (0, 0.1, 0), (0, 0, 0.1), (0.1, 0.1, 0.1)], '
+                          '[(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3), (1, 2, 4)], at=(0.3, 0.3, 0.68), material=red)\n')
 
 
 async def test_the_judge_notice_comes_with_the_first_reply_after_the_session_opens_whatever_its_first_word(ws, monkeypatch):
@@ -400,7 +410,7 @@ async def test_the_judge_notice_comes_with_the_first_reply_after_the_session_ope
 
     monkeypatch.setattr(DecisionControlPlane, "calibrated", property(lambda self: False))
     host = M.StudioHost(script=True)
-    r = await build(host, ws, write(ws, crate(extra=FIVE_MATERIALS)))
+    r = await build(host, ws, write(ws, crate(extra=THREE_FACES_ON_AN_EDGE)))
     assert r.startswith("NOT BUILT: crate.py makes a design the engine would reject") and host.active is not None
     notice = ("WARNING: this key has no calibrated judge, so deliver_package will be refused until the user allows an "
               "unverified preview: ask the user whether they want one and for their two limits (a token ceiling and an "
@@ -415,7 +425,7 @@ async def test_the_judge_notice_comes_with_the_first_reply_after_the_session_ope
     assert "deliver_package(dest=...)" in r
     # deliver_package on a script session that holds no design names the script, not apply_scene_ir (seq/b3.py)
     other = M.StudioHost(script=True)
-    await build(other, ws, write(ws, crate(extra=FIVE_MATERIALS)), preview=True, token_ceiling=100_000, max_images=0)
+    await build(other, ws, write(ws, crate(extra=THREE_FACES_ON_AN_EDGE)), preview=True, token_ceiling=100_000, max_images=0)
     r = await other.call_tool("deliver_package", T.deliver_package, "", {})
     assert "nothing to deliver: the scene is empty (write the script and run_build it)" in r and "apply_scene_ir" not in r, r
 

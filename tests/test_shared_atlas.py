@@ -236,6 +236,53 @@ def test_a_blended_material_keeps_its_own_atlas_maps_and_draw_call(tmp_path):
     assert pm.data["draw_calls"] == 2
 
 
+def _finishes(d: Path, extra: list[MaterialIR]) -> SceneIR:
+    """Six boxes on a base, each in an opaque finish of its own (colour, roughness, metal), and one more box per
+    material of ``extra``."""
+    plain = [MaterialIR(id=f"finish_{i}", base_color=(0.15 * i + 0.1, 0.5, 0.9 - 0.12 * i), roughness=0.3 + 0.1 * i,
+                        metallic=float(i % 2)) for i in range(6)]
+    mats = plain + extra
+    nodes = [NodeIR(id="base", kind="box", params={"size": (0.3 * len(mats), 0.4, 0.05)}, transform=Transform(translate=(0, 0, 0.025)),
+                    material_id="finish_0")]
+    nodes += [NodeIR(id=f"part_{m.id}", kind="box", params={"size": (0.2, 0.2, 0.2)}, material_id=m.id,
+                     transform=Transform(translate=(0.3 * (i - (len(mats) - 1) / 2), 0, 0.15))) for i, m in enumerate(mats)]
+    return SceneIR(asset_name=ASSET, materials=mats, nodes=nodes)
+
+
+@pytest.mark.parametrize("extra, budget, ships", [
+    ([], {}, 1),                                                                     # runs 5 and 6: six finishes, one draw call
+    # two lamps of one strength: their colours are baked into the atlas's emissive map, so they are one material
+    ([MaterialIR(id="lamp_a", emissive_color=(1.0, 0.6, 0.1), emissive_strength=2.0),
+      MaterialIR(id="lamp_b", base_color=(0.1, 0.1, 0.9), emissive_color=(0.1, 0.4, 1.0), emissive_strength=2.0)], {}, 2),
+    ([MaterialIR(id="lamp_a", emissive_color=(1.0, 0.6, 0.1), emissive_strength=2.0),
+      MaterialIR(id="lamp_c", emissive_color=(1.0, 0.6, 0.1), emissive_strength=0.5)], {}, 3),   # two strengths: two
+    ([MaterialIR(id="glow", emissive_color=(1.0, 0.6, 0.1))], {}, 1),                # at strength 1 it is only a map
+    ([MaterialIR(id="lacquer", clearcoat=0.8, clearcoat_roughness=0.1)], {}, 2),
+    ([MaterialIR(id="glass", alpha_mode="BLEND", opacity=0.4)], {}, 2),
+    ([MaterialIR(id="leaf", double_sided=True)], {}, 2),
+    ([], {"shared_atlas": False}, 6),
+])
+def test_the_fast_check_counts_the_draw_calls_the_package_ships(tmp_path, extra, budget, ships):
+    """Runs 5 and 6 of the website task: a design of six materials was rolled back for "draws 6>4", and the packages
+    the agent then delivered ship one draw call. The fast check counted the materials' names; what a package ships is
+    one glTF material for every opaque material that differs only in what the atlas bakes."""
+    from antigravity3d.kernel.fast_ops import shipped_draw_calls, tier1_qa
+    from antigravity3d.kernel.validator import check_engine_compliance
+
+    b = EngineBudget("godot_4", max_draw_calls=max(ships, 1) if budget else 4, **budget)
+    scene = _finishes(tmp_path, extra)
+    sm, _bundle, pm = build(tmp_path, scene, b)
+    assert pm.ok, [i for i in pm.issues if i.severity == "critical"]
+    meshes = sm.extract_meshes()
+    assert pm.data["draw_calls"] == ships == shipped_draw_calls(meshes, b), (pm.data["draw_calls"], shipped_draw_calls(meshes, b))
+    rep = tier1_qa(meshes, b)
+    assert rep.stats["draw_calls"] == ships and not [i for i in rep.issues if i.code == "draw_call_budget"]
+    assert not [i for i in check_engine_compliance(None, meshes, b) if i.code == "draw_call_budget"]
+    over = EngineBudget("godot_4", max_draw_calls=ships - 1, **budget)   # one under what ships: refused, with what ships
+    if ships > 1:
+        assert f"draws {ships}>{ships - 1}" in tier1_qa(meshes, over).one_line()
+
+
 def test_merge_materials_merges_only_what_is_equal_but_the_name():
     from antigravity3d.kernel.gltf_writer import GltfMaterial
 
