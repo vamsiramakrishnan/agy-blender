@@ -99,22 +99,24 @@ Round seven repainted the script-mode props without touching their meshes. The c
 the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
 [round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
 
-A whole website was asked for five times, in one sentence each time: before the plugin was changed for what the
+A whole website was asked for six times, in one sentence each time: before the plugin was changed for what the
 first run's logs showed, after, after each of two independent reviews of the site's three.js, and after the faults
-the fourth run showed. A blind judge prefers the second site to the first, finds the third level with the second,
-prefers the fourth to all three (to the second in six of six verdicts), and prefers the fourth to the fifth as
-well, six to none. The fourth site shows a source for every number, was built with no tool call cut off (the first
-run lost six) and with no screenshot script of the agent's own, and follows one real log through three open
-machines. It is dark as built; photographed under the second run's light the judge prefers it to itself in six of
-six verdicts, and that light is the starter's again. The fifth run's verdicts and log traced five more faults to
-the plugin, two of them to corrections made for the fourth: a check told to excuse a travelling camera while the
-chapter's text is up, and a skill that asked for light grey machines. Measuring the scroll itself added a sixth: on
-every site built on the skill's starter the first notch of a mouse wheel moved the picture by a third of a pixel or
-less, where it changes a third of the stock agent's window. All six are in the report, corrected and tested, and no
-site has been built with them yet. The same request without the plugin took half the model calls
-and tokens (37 and 5.0 M against 64 to 81 and 8.0 to 11.2 M) and gave a site the judge placed below the plugin's
-second to fifth in all twenty-four verdicts, for objects that float where the plugin's stand on a floor and for
-text over its 3D; the site check adds that it shows nothing without WebGL.
+the fourth and the fifth run showed. A blind judge prefers the second site to the first, finds the third level
+with the second, and prefers the fourth to every other, to the fifth and to the sixth in six of six verdicts
+each. The fourth site shows a source for every number, was built with no tool call cut off (the first run lost
+six) and with no screenshot script of the agent's own, and follows one real log through three open machines. Every
+run has shown faults of the plugin's own, some of them made by the corrections for an earlier run: a check told to
+excuse a travelling camera while the chapter's text is up, a skill that asked for light grey machines, a starter
+and a guide that asked for a floor as dark as the page; and on every site built on the starter the first notch of
+a mouse wheel moved the picture by a third of a pixel or less. After the sixth run what its verdicts name was put
+to the judge one thing at a time, on the same site: with
+its floor lit it is preferred to itself in eleven of twelve verdicts; no text card while the camera moves is the
+better rule, six of six; and a card whose text is half faded where a visitor stops, which the guide's own example
+taught, loses six of six. These are corrected and tested, and no site has been built with them yet. The same
+request without the plugin took half the model calls and tokens (37 and 5.0 M against 64 to 81 and 8.0 to 11.2 M)
+and gave a site the judge placed below the plugin's second to sixth in all thirty verdicts, for objects that
+float where the plugin's stand on a floor and for text over its 3D; the site check adds that it shows nothing
+without WebGL.
 Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it

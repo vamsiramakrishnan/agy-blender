@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run6",
+ "rep": 1,
+ "frames": [
+  "57c48173e1aeb830",
+  "fefcd13ba712ee55"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its 3D assembly unobstructed across frames 1 to 9 with smooth camera travel, whereas Site 1 obscures the 3D under text in frames 1, 5, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 uses a unified factory press, rack, and host lanes with in-scene labels in frames 5, 6, and 8 to directly visualize token compression and anchoring, whereas Site 1 uses disconnected abstract shapes."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features cohesive, grounded machinery with contact shadows on a floor plane across frames 1 to 9, while Site 1 floats simple glowing primitives in space."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 places concise, readable cards consistently in the top-left in frames 1 to 3, 5, 6, 8, and 9, while Site 1 suffers from text overlapping the header in frames 4 and 5."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, unobstructed 3D scroll journey through a tangible mechanical metaphor that clearly visualizes how Straitjacket works."
+  }
+ }
+}

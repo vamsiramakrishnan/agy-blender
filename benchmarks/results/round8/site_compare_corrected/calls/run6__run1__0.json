@@ -1,0 +1,33 @@
+{
+ "first": "run6",
+ "second": "run1",
+ "rep": 0,
+ "frames": [
+  "fefcd13ba712ee55",
+  "e074b52a7a5c36c0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps its 3D machinery cleanly framed on the right across frames 1 to 9, whereas Site 2 hides its 3D behind giant scrolling cards in frames 2 and 3 and leaves frames 6 and 9 nearly empty of 3D."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 physically illustrates the data pipeline\u2014showing the massive token pile in frame 3 compressed by a press into a tiny handle on a conveyor belt in frame 5\u2014more clearly than Site 2's abstract sci-fi rings and calipers."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's models in frames 1, 5, and 7 feature richer metallic materials, specular highlights, emissive cores, and particle shaders compared to Site 1's flatter matte-plastic aesthetic."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 uses compact, consistent cards on the upper left (frames 1-3, 5-6, 8-9) that give the 3D scene breathing room, while Site 2's oversized, shifting panels clip off-screen and crowd the viewport in frames 2, 3, 6, and 8."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a cohesive, Scrolltide-like spatial journey where well-proportioned typography and clear mechanical metaphors work together at every scroll step to visually explain how Straitjacket tames context floods."
+  }
+ }
+}

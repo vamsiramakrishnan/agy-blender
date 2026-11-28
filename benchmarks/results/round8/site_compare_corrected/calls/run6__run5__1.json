@@ -1,0 +1,33 @@
+{
+ "first": "run6",
+ "second": "run5",
+ "rep": 1,
+ "frames": [
+  "fefcd13ba712ee55",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D apparatus well-framed in the right viewport across frames 1-9 (with only minor card overlap on the rack in frame 5), whereas Site 2 hides the press and cabinet behind the text card in frames 2, 5, and 6 and clips the 3D label on the right edge in frame 6."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 breaks the pipeline into four distinct, legible metaphors\u2014press (frames 3-4), filing cabinet store (frame 5), gantry relocator (frame 7), and labeled pre/post gate lanes (frame 8)\u2014making the step-by-step data flow clearer than Site 1's three-machine cluster."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's machinery has cohesive stylized edge-wear, bevels, and grounded contact shadows across all three units (frames 4-8), while Site 2 mixes blotchy procedural metal on the cabinet (frame 5) with flat, untextured blocks for the host gates (frame 8)."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1's cards present crisp hierarchy, clear tabular harness comparisons in frame 8, and leave open space for the 3D scene, whereas Site 2's card collides with the 3D models in frames 5-6 and truncates 'Antigravity' inside a cramped pill grid in frame 8."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a more cohesive, well-composed 3D scroll experience where custom-crafted machinery, clean typography, and unobstructed framing work together seamlessly from top to bottom."
+  }
+ }
+}

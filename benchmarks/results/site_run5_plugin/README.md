@@ -18,7 +18,7 @@ Nothing here is graded.
 |---|---|
 | wall time | 39.4 min. The model service was fast: 25.5 min in 84 answered calls (10 s at the median, one over two minutes), none failed |
 | time inside tool calls | 18.4 min, 16.4 of them in the plugin's tools; deliveries and installs 6.4 min |
-| model calls | 81 by the agent, and 3 by the plugin's review of the props |
+| model calls | 81: 78 by the agent and 3 by the plugin's review of the props |
 | tokens | 11,187,436: input 11,057,211 (6,653,939 of it served from cache), output 91,857, thinking 38,368 |
 | images | 0 |
 | tool calls | 132, of them 30 to the plugin |

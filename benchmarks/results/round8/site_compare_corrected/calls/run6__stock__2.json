@@ -1,0 +1,33 @@
+{
+ "first": "run6",
+ "second": "stock",
+ "rep": 2,
+ "frames": [
+  "fefcd13ba712ee55",
+  "57c48173e1aeb830"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 smoothly pans across one continuous 3D scene in frames 1 through 9 with only minor overlap in frame 5, whereas Site 2 suffers from text overlapping the 3D subject in frame 1, awkward clipped transitions in frame 4, and cards obscuring the 3D background in frames 5 and 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 uses a clear physical factory metaphor\u2014showing a massive red-and-black token flood in frame 3 compressed by a press into a tiny digest in frame 5 and routed to an anchor rack in frame 6\u2014whereas Site 2 relies on disconnected, abstract glowing logos and rings in frames 1, 2, and 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's machinery in frames 4, 6, and 7 looks solid, grounded on a floor grid with cast shadows, chamfered edges, and cohesive matte-industrial materials, while Site 2's objects float ungrounded in space with generic bloom and primitive geometry like the rings in frame 3."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps text inside clean, consistent left-hand cards (frames 1\u20133, 5\u20136, 8\u20139) that leave the right side open for the 3D scene, while Site 2 collides headline text with the 3D logo in frame 1 and scrolls tall, dense cards across both sides of the screen in frames 4, 5, and 9."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a cohesive, grounded 3D factory visualization that genuinely explains how Straitjacket compresses logs and anchors code across a smooth, well-composed scroll."
+  }
+ }
+}

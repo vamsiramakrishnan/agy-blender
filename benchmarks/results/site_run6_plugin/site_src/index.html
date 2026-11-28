@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Straitjacket — Addressable Evidence for Coding Agents</title>
+  <meta name="description" content="Straitjacket captures large coding-agent tool output locally once, returns a bounded digest and handle, tracks edits with content anchors, and hooks into seven harnesses.">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <header class="hud" data-bar aria-label="Site navigation">
+    <div class="hud-inner">
+      <a class="brand" href="#intro">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">STRAITJACKET</span>
+        <span class="brand-ver"><span data-src="README.md">ctx-harness</span> <span data-src="README.md">v0.5.0</span></span>
+      </a>
+      <nav class="chapter-nav" aria-label="Story chapters">
+        <a href="#intro" data-nav="intro"><span>01</span> Overview</a>
+        <a href="#flood" data-nav="flood"><span>02</span> Flood</a>
+        <a href="#digest" data-nav="digest"><span>03</span> Digest</a>
+        <a href="#anchors" data-nav="anchors"><span>04</span> Anchors</a>
+        <a href="#hosts" data-nav="hosts"><span>05</span> Hosts</a>
+        <a href="#start" data-nav="start"><span>06</span> Start</a>
+      </nav>
+      <a class="docs-link" href="./docs/">Docs →</a>
+    </div>
+    <div class="progress-rail" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+  </header>
+
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <main id="story">
+    <section class="chapter" id="intro" data-chapter="intro">
+      <div class="panel panel-blue">
+        <p class="kicker"><span class="dot dot-blue" aria-hidden="true"></span><span>01 / ADDRESSABLE EVIDENCE</span></p>
+        <h1>KEEP TOOL FLOODS OUT OF CONTEXT.</h1>
+        <p>Straitjacket helps coding agents find the code they need and hand work to each other. Capture large output locally once, return a bounded digest and a handle, and retrieve only the lines the next decision needs.</p>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-label">RAW LOG</span>
+            <span class="metric-val val-red"><span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tok</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">DIGEST</span>
+            <span class="metric-val val-blue"><span data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span> tok</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">WRONG ANCHORS</span>
+            <span class="metric-val val-green"><span data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span> / <span data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span></span>
+          </div>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="#flood"><span>Trace a <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line log ↓</span></a>
+          <a class="btn btn-ghost" href="./docs/"><span>Read documentation →</span></a>
+        </div>
+        <img class="still" src="stills/intro.webp" alt="Three precision instruments on a calibrated dark bench: the open Digest Press with a 6,053-slab raw log stack arriving at its intake, the Content Anchor Rack to the left, and the Seven-Host Gate Manifold behind them." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="flood" data-chapter="flood">
+      <div class="panel panel-red">
+        <p class="kicker"><span class="dot dot-red" aria-hidden="true"></span><span>02 / RESIDENT FLOOD</span></p>
+        <h2>ONE LOG DUMPS <span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> TOKENS.</h2>
+        <p>A single <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line integration log carries <span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tokens into the prompt and stays resident turn after turn. Head-and-tail truncation cuts to <span data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> tokens—and silently drops the quiet failure at line <span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span>.</p>
+        <div class="receipt-box">
+          <div class="receipt-row">
+            <span class="tag tag-red">RAW FLOOD</span>
+            <span class="mono"><span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tok · <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span> lines (1 slab = 50 tok)</span>
+          </div>
+          <div class="receipt-row">
+            <span class="tag tag-muted">HEAD+TAIL TRUNC</span>
+            <span class="mono"><span data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> tok · quiet needle DROPPED</span>
+          </div>
+          <div class="receipt-row">
+            <span class="tag tag-amber">QUIET NEEDLE</span>
+            <span class="mono">L<span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span> · <span data-src="evals/field-needle-2026-07-20.md">fell back to legacy gateway after circuit opened</span></span>
+          </div>
+        </div>
+        <p class="receipt-foot">Receipt: <code>evals/field-needle-record.json</code> · <code>o200k_base</code></p>
+        <img class="still" src="stills/flood.webp" alt="Low angle looking down a towering 6,053-slab red flood stack (50 tokens per slab) pressing into the open intake rollers of the Digest Press." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="digest" data-chapter="digest">
+      <div class="panel panel-amber">
+        <p class="kicker"><span class="dot dot-amber" aria-hidden="true"></span><span>03 / BOUNDED DIGEST + ADDRESS</span></p>
+        <h2><span data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span> TOKENS OUT. NEEDLE KEPT.</h2>
+        <p><code>ctx run</code> stores the full stream locally and presses <span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tokens <span data-src="evals/field-needle-2026-07-20.md">570×</span> into a <span data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span>-token template digest. Line <span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span> survives alongside its retrieval handle.</p>
+        <pre class="specimen" data-src="evals/field-needle-record.json#/arms/6/output_excerpt"><code>[ctx run:8956c843e556 profile=logtemplate/v1]
+cwd: .
+command: cat corpus.log
+exit: 0
+stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens</code></pre>
+        <div class="metrics metrics-2">
+          <div class="metric">
+            <span class="metric-label">REDUCTION</span>
+            <span class="metric-val val-amber" data-src="evals/field-needle-2026-07-20.md">570×</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">DIGEST OUT</span>
+            <span class="metric-val val-blue"><span data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span> tok</span>
+          </div>
+        </div>
+        <img class="still" src="stills/digest.webp" alt="Exit side of the open Digest Press: the platen lowers over the rollers as the 6,053-slab flood collapses into 10 blue digest slabs and 1 amber quiet-needle slab on the output rail." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="anchors" data-chapter="anchors">
+      <div class="panel panel-green">
+        <p class="kicker"><span class="dot dot-green" aria-hidden="true"></span><span>04 / CONTENT ANCHORS</span></p>
+        <h2>ADDRESSES THAT SURVIVE EDITS.</h2>
+        <p>A bare line number is a position, not an identity—after shifting edits, <span data-src="evals/anchor-drift-2026-08-20.md">99.9%</span> of unanchored lookups (<span data-src="evals/anchor-drift-2026-08-20.json#/total/unanchored_silently_wrong">1,918</span> of <span data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span>) returned wrong content silently. Content anchors verify, relocate, or refuse.</p>
+        <div class="metrics metrics-4">
+          <div class="metric">
+            <span class="metric-label">RELOCATED</span>
+            <span class="metric-val val-green" data-src="evals/anchor-drift-2026-08-20.json#/total/relocated">1,452</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">VERIFIED</span>
+            <span class="metric-val val-blue" data-src="evals/anchor-drift-2026-08-20.json#/total/verified">2</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">REFUSED</span>
+            <span class="metric-val val-red" data-src="evals/anchor-drift-2026-08-20.json#/total/refused">466</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">WRONG</span>
+            <span class="metric-val val-green" data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span>
+          </div>
+        </div>
+        <p class="receipt-foot">Receipt: <code>evals/anchor-drift-2026-08-20.json</code> · <span data-src="evals/anchor-drift-2026-08-20.json#/files">40</span> files · +<span data-src="evals/anchor-drift-2026-08-20.json#/cost/overhead_pct">20.6</span>% address chars</p>
+        <img class="still" src="stills/anchors.webp" alt="Close view of the open Content Anchor Rack: specimen drawer open with stored evidence, shifting code-span bars, an amber caliper tracking the relocated green span, and a red refusal stop." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="hosts" data-chapter="hosts">
+      <div class="panel panel-blue">
+        <p class="kicker"><span class="dot dot-blue" aria-hidden="true"></span><span>05 / SEVEN HOST LANES</span></p>
+        <h2>TWO GATES ACROSS SEVEN HARNESSES.</h2>
+        <p><code>ctx setup</code> wires each coding harness at the points its hook contract supports. Birth gates rewrite before execution; output gates replace oversized results after. Antigravity rewrites at birth because its post-hook cannot replace output.</p>
+        <ul class="host-list">
+          <li><img src="./agents/claude.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">Claude Code</span><span class="tag tag-blue">OUTPUT GATE</span></li>
+          <li><img src="./agents/codex.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">Codex</span><span class="tag tag-blue">OUTPUT GATE</span></li>
+          <li><img src="./agents/antigravity.png" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">Antigravity</span><span class="tag tag-amber">BIRTH REWRITE</span><span class="tag tag-red">NO OUTPUT</span></li>
+          <li><img src="./agents/hermes.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">Hermes</span><span class="tag tag-blue">BIRTH + OUTPUT</span></li>
+          <li><img src="./agents/omp.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">Oh My Pi</span><span class="tag tag-blue">BIRTH + OUTPUT</span></li>
+          <li><img src="./agents/opencode.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">OpenCode</span><span class="tag tag-blue">BIRTH + OUTPUT</span></li>
+          <li><img src="./agents/dsh.svg" alt="" width="18" height="18"><span class="host-name" data-src="docs/HOST-CAPABILITIES.md">DeepSeek Harness</span><span class="tag tag-amber">DENY</span><span class="tag tag-blue">OUTPUT</span></li>
+        </ul>
+        <img class="still" src="stills/hosts.webp" alt="Top-down view of the open Seven-Host Gate Manifold: seven parallel channels with front birth-gate and rear output-gate bridges, blue bounded packets across output-gated lanes and amber birth-rewritten packets on Antigravity's lane beside a red open output boundary." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="start" data-chapter="start">
+      <div class="panel panel-amber">
+        <p class="kicker"><span class="dot dot-amber" aria-hidden="true"></span><span>06 / START HERE</span></p>
+        <h2>TRY IT ON A FAILING TEST.</h2>
+        <p>Run commands through <code>ctx</code>, search the local artifact store by handle, and hand verified checkpoints across harnesses over ACP. Your harness keeps running the model and controlling its tools.</p>
+        <pre class="specimen" data-src="README.md"><code>python -m pip install 'ctx-harness==0.5.0'
+ctx run -- pytest -q</code></pre>
+        <p class="cmd-note">Connect your coding harness with <code data-src="README.md">ctx setup</code> and verify hooks with <code data-src="README.md">ctx doctor</code>.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="./docs/"><span>Open documentation →</span></a>
+          <a class="btn btn-ghost" href="#intro"><span>Replay from start ↑</span></a>
+        </div>
+        <img class="still" src="stills/start.webp" alt="Low group view of all three Straitjacket instruments standing together on the dark bench: the Digest Press, Content Anchor Rack, and Seven-Host Gate Manifold linked by bounded blue and amber evidence." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/entry.js"></script>
+</body>
+</html>
