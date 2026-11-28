@@ -178,7 +178,9 @@ class LatheParams(_Model):
 
     profile: list[Vec2] = Field(min_length=2, max_length=32, description="(radius, z) points along the outline, top to bottom; radius >= 0")
     segments: int = Field(16, ge=3)
-    closed: bool = Field(False, description="the profile is a closed loop that never touches the axis: a tube, pipe or ring")
+    closed: bool = Field(False, description="false turns the outline as written and caps its ends: a solid, also for a housing or "
+                         "a bell. true only when the profile is itself a closed loop off the axis, outer and inner wall both "
+                         "written: a tube or ring with a wall")
 
 
 class ExtrudeParams(_Model):
@@ -237,7 +239,8 @@ class NodeIR(_Model):
       cone      radius, height, segments=24            (base at -h/2, apex +h/2)
       sphere    radius, segments=24, rings=12
       capsule   radius, height (cylinder part), segments=16
-      lathe     profile: [(radius, z), ...] turned about local Z, segments=16, closed=False (True: a tube or ring)
+      lathe     profile: [(radius, z), ...] turned about local Z, segments=16, closed=False (a solid, ends capped;
+                True only for a loop off the axis with both walls written: a tube or ring)
       extrude   outline: [(x, y), ...] counter-clockwise in local XY, depth along local Z (centred)
       mesh_ref  path: str (glTF/OBJ/PLY/USD file to reference)
       group     no params; pure transform parent

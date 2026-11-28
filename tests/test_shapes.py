@@ -289,6 +289,9 @@ def test_one_segment_is_faceted_more_are_smooth(s: int, kind: str) -> None:
     ({"profile": [(0.5, 0), (0.7, 0.1)], "closed": True}, "lathe", r"needs at least 3 distinct points"),
     ({"profile": [(0.5, 0), (0.7, 0.1), (0.0, 0.1)], "closed": True}, "lathe", r"closed profile must not touch the axis"),
     ({"profile": [(0.5, 0), (0.7, 0.1), (0.7, -0.1), (0.5, 0.1)], "closed": True}, "lathe", r"crosses or touches itself"),
+    # run 6's first lathe: the outline of a solid housing, written with closed=true
+    ({"profile": [(0.12, 0), (0.12, 0.06), (0.095, 0.08), (0.095, 0.34), (0.115, 0.36), (0.115, 0.42)], "closed": True}, "lathe",
+     r"segment 1-2 meets segment 5-0\); closed=true joins the last point to the first\. This outline turns as written with closed=false"),
     ({"profile": [(0.5, 0), (0.6, 0), (0.7, 0)], "closed": True}, "lathe", r"(folds back|no area)"),
     ({"profile": [(0, 1), (0, -1)]}, "lathe", r"encloses nothing"),
     ({"outline": [(0, 0), (1, 1), (1, 0), (0, 1)], "depth": 0.1}, "extrude", r"outline crosses or touches itself"),

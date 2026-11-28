@@ -314,6 +314,17 @@ def lathe_rows(profile: list[tuple[float, float]], closed: bool, nid: str = "lat
         if len(loop) < 3:
             raise ValueError(f"{nid}: profile {pts} encloses nothing (both points on the axis)")
     if why := loop_problem(loop, "profile" if closed else "profile (with its caps)"):
+        if closed:
+            # The first lathe of runs 5 and 6 of the website task was an outline written for a solid with closed=true
+            # (a housing: "a tube"). The loop's closing segment then cuts across the outline, and the message named two
+            # segments without saying which reading of the profile was wrong.
+            try:
+                lathe_rows(profile, False, nid)
+            except ValueError:
+                pass
+            else:
+                why += ("; closed=true joins the last point to the first. This outline turns as written with closed=false "
+                        "(a solid, its ends capped); for a tube with a wall, write the inner wall too")
         raise ValueError(f"{nid}: {why}")
     area = signed_area(loop)
     span = max(max(abs(c) for p in loop for c in p), 1e-12)
