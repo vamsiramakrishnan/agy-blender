@@ -76,6 +76,15 @@ verdicts and the worse explanation in four. Run 2's press stood open over the lo
 seven lanes stood for seven hosts, where run 3 "hides the digestion inside a closed box"; and run 3's text said 570
 times while its picture showed 96 slabs against 6.
 
+Give every mechanism the text explains a station of its own, and stand the stations along one path in the order the
+followed thing meets them, far enough apart that a chapter's shot holds its own station at work (a medium or a close
+shot, [recipes.md](recipes.md)) and not the whole group from a distance. The group is for the opening and for the
+end. Why: on how well the picture explains the project a blind judge preferred run 4's and run 5's sites to run 6's
+in six of six verdicts each, for "a clearer linear bench from flood to press, drawer store, and relocator", where
+run 6 "clusters machines tightly and skips a dedicated local-store stage": it had three machines for four
+mechanisms and kept its camera back to hold them (thirteen of the twenty verdicts against it on that criterion say
+clustered, distant or further back).
+
 ### 2. Page and scene
 
 Copy `starter/index.html`, `starter/src/` and `starter/vite.config.js` into the project (keep the workspace's

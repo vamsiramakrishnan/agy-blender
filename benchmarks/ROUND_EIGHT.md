@@ -818,6 +818,9 @@ Three more faults of the plugin are in the run's log.
 What the judge names beyond these is the agent's storyboard. Twenty verdicts on "explains the project" go against
 run 6: eight say its machines are clustered and five that the camera stays back, and run 5's is preferred on that
 criterion in six of six for its line of stations. Run 6 has three machines and no station for the local store.
+The skill's storyboard step now asks for a station for each mechanism the text explains, along one path in the
+order the followed thing meets them, and for a chapter's shot to hold its own station and not the group from a
+distance; whether an agent does so is for the next run to show.
 Seven of the ten composition verdicts also name frame 5, where the card lies over a machine that is not the shot's
 subject, and three name frame 8, where a machine in the foreground is cut by the frame; the check, which measures
 the shot's subject, names neither. And the plugin's own review put the three props lower than run 5's (1.76, 1.26
@@ -861,8 +864,9 @@ levels.
   controlled comparison of one site, the timed text on a check and a reading of run 6's page; no site has been
   built with them. The corrections made after run 5 gave a site ahead of run 5's and behind run 4's.
 - **Run 4's site is still the judge's choice, and no later run has matched how it explains the project**: six of
-  six on that criterion over runs 5 and 6. Its storyboard follows one log through a line of open machines; the
-  skill asks for that, and runs 5 and 6 answered with stations at angles and with three machines in a cluster.
+  six on that criterion over runs 5 and 6. Its storyboard follows one log through a line of open machines. Runs 5
+  and 6 answered the same skill with stations at angles and with three machines in a cluster; the skill now says
+  where the stations stand, and nothing has been built since.
 - **Part of every chapter has no text**: the camera's move, 0.35 of a chapter. The judge names those frames in
   every composition verdict against run 6 and still prefers them to a card over a picture in transit. Whether a
   shorter move is better was not read cleanly.
