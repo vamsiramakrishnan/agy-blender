@@ -883,7 +883,12 @@ levels.
 - **The craft of the 3D is where run 2 still leads.** Six of six verdicts over run 4, over run 5 and over run 6.
   The light explains it for run 4 and the floor for all three (run 2's floor shows at 94 of 255, theirs at 16 to
   19). The verdicts also name richer forms and bevels, contact shadows and colour contrast in run 2's machines;
-  nothing in this round's corrections aims at how an agent shapes a prop.
+  nothing in this round's corrections aims at how an agent shapes a prop. And one of them may have cost something:
+  after run 5 the surface generator was made evener on metal, for three verdicts that said "blotchy" (a panel's
+  roughness went from 0.25 to 0.46 to 0.31 to 0.39), and fifteen of the nineteen craft verdicts against run 6 say
+  flat, matte, uniform, simple or toy-like, against "tactile brushed-metal roughness" in run 2's. Run 6's machines
+  are also smaller in the frame and a lighter, bluer metal, so the verdicts do not say which it is, and it was not
+  put to the judge.
 - **The plugin's runs cost twice what the stock agent's did**, for a site that is judged better. Part of it was
   waste that is removed now (16 minutes on the check's pictures). Part is how the plugin models a prop: call by
   call, a model turn for each. No change of this round touches that. Round six built the other way (one script per
