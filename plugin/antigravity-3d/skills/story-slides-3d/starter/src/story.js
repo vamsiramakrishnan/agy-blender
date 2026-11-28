@@ -1,16 +1,22 @@
-// story.js: the film. Its scenes in the order of the HTML's sections (film.js reports any mismatch), its treatment
-// (print.js; ?print=grade|halftone|glyph shows the alternatives) and its two inks, which the print uses for paper and
-// ink (style.css repeats them for the page around the picture).
-import title from './scenes/title.js';
-import tower from './scenes/tower.js';
-import room from './scenes/room.js';
-import shore from './scenes/shore.js';
-import end from './scenes/end.js';
+// story.js: the deck. Its scenes in the order of the HTML's sections (film.js reports any mismatch), its form, and
+// its worlds.
+// - form: 'deck' (the picture fills the frame and each scene's words lie over it, as its data-layout says) or 'film'
+//   (the picture, with the scene's title and the current beat's lines under it).
+// - worlds: a world is built once (src/worlds/) and posed by every scene that names it (`world: 'sky'`); between two
+//   scenes of one world the camera travels and the picture is not cut.
+// The look is the theme's (data-story-theme on <html>): its colours, its light, its print. A story that wants a look of
+// its own names `treatment`, `paper` and `ink` here, as the film in ../examples/film does.
+import * as sky from './worlds/sky.js';
+import cloud from './scenes/cloud.js';
+import looks from './scenes/looks.js';
+import drops from './scenes/drops.js';
+import weight from './scenes/weight.js';
+import floats from './scenes/floats.js';
+import up from './scenes/up.js';
 
 export const film = {
-  title: 'Keeper',
-  treatment: 'halftone',
-  paper: '#0b0f17', // night: the ground everything is printed on
-  ink: '#efe4cb', // lamp light: what the light draws with
-  scenes: [title, tower, room, shore, end],
+  title: 'How heavy is a cloud?',
+  form: 'deck',
+  worlds: { sky },
+  scenes: [cloud, looks, drops, weight, floats, up],
 };

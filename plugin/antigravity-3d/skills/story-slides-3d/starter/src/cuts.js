@@ -78,5 +78,11 @@ Cut cut_flip(vec2 q, vec2 grid, float p) {
 // own entrance.
 export const QUICK = 0.45;
 
+// A travel is not a cut: between two scenes of one world there is one picture, and the camera goes from where the
+// leaving scene had it to where the arriving one wants it (film.js). It is the entrance of a scene whose world is
+// the last scene's, unless the scene names a cut. `dur` is its seconds going forward (a scene may say `travel: 2.4`),
+// `back` going back.
+export const TRAVEL = { dur: 1.6, back: 0.6 };
+
 // The cuts' names in the order the print numbers them (uCut).
 export const CUT_NAMES = Object.keys(CUTS);

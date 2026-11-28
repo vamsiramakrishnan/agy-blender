@@ -45,11 +45,14 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
 
-A film (a page with no scroll that sets ``window.__story``, the story-film contract) is stepped beat by beat instead
+A story (a page with no scroll that sets ``window.__story``, the story contract: a deck whose slides are HTML over a
+3D stage, or a film; the names in this module say film, which the first stories were) is stepped beat by beat instead
 (``_Visitor.beats``): every beat shown settled with ``go(scene, beat)`` and photographed at both sizes, its picture
 alone and its window; the answer, headed STORY CHECKED, names a hook call that hangs or rejects, an empty picture, a
-beat without a line or with a line its HTML does not hold, a beat that changes nothing, a scene that stands still, a
-caption that does not fit, the arrow key and the hash (``film_findings``), and writes one still per scene.
+beat without a line or with a line its HTML does not hold, a beat that changes nothing, a scene that stands still,
+a beat whose words are in the page and are not shown there (``words_unseen``), text that does not fit, words that
+are hard to read over the picture (``words_contrast``), the arrow key and the hash (``film_findings``), and writes
+one still per scene. A beat that only adds words to a slide is counted, not named (``same_picture``).
 
 Everything is bounded: the whole check answers within ``ANSWER_S`` (the host ends a tool call at 180 s), with what it
 has when time runs out, and says which parts are missing.
@@ -325,13 +328,15 @@ OCCLUSION_OFF_HERE = "off: a software renderer"
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
-# ---- a film (film mode): a page with no scroll that the story-film contract steps beat by beat through window.__story
+# ---- a story (a deck or a film): a page with no scroll that the story contract steps beat by beat through
+# window.__story. The names say film, which the first stories were.
 #: Beats photographed per size at most; a longer film is sampled: every scene's last beat (its still and the reading
 #: of whether it moves are taken there), then an even spread of the others. The talk deck the owner showed has 13
 #: scenes and 43 beats, and is seen whole. A beat costs a settled go(), two frames, two pictures and two short reads:
 #: 0.4 s on the test film of tests/test_site_check.py (5 beats in 2 s at each size, the two sizes at once), more on a
 #: heavy page drawn in software; 48 beats at 1.5 s are 72 s, which with the wait for ready (FILM_READY_S) still leaves
-#: the answer inside ANSWER_S. The clock bounds it in any case.
+#: the answer inside ANSWER_S. The clock bounds it in any case. The reading of the words over the picture
+#: (``WORDS_CELL``) adds what ``_Visitor.beats`` says it measured, a few seconds over 48 beats.
 FILM_BEATS_MAX = 48
 #: one call of the hook (go, at, advance) may take this long: a settled go() draws one frame, and on software WebGL a
 #: heavy frame takes 0.5 to 2 s (site_probe.js, "The page's clock"); the same bound as one still (STILL_WAIT_S)
@@ -356,8 +361,74 @@ FILM_MOVES_S = 20.0
 FILM_KEY_S = 2.0
 #: a tile's label on the contact sheet: the scene, the beat and its first line cut to this many characters
 FILM_LABEL_CHARS = {"desktop": 44, "phone": 18}
+#: why a read of where the story is came back empty when the page gave no answer in the time a read has
+#: (``SUBJECTS_WAIT_S``): a page busy drawing, not a story that does not say where it is (``_Visitor.film_hash``)
+UNANSWERED = "the page did not answer in time"
 #: the contract's members of window.__story, in its order
 FILM_MEMBERS = ("ready", "mode", "title", "treatment", "scenes", "go", "play", "at", "advance", "back", "setAuto", "info")
+#: The layout of a scene whose words are a caption: one beat's lines at a time, under the picture or over its lower
+#: third (``info().layout``; a page that gives none is a film, and its words are captions). Any other layout is a
+#: slide: its heading stays up and its beats add to what is shown, so a beat there may add words and leave the
+#: picture as it was (``same_picture``).
+CAPTION = "caption"
+#: Words over the picture (``words_contrast``): WCAG's contrast ratio between a line's colour and what is drawn behind
+#: it, which must reach WORDS_NEED_LARGE for large type (WORDS_LARGE_PX and up, or WORDS_BOLD_PX and up in bold: WCAG's
+#: 18 pt and 14 pt bold) and WORDS_NEED for the rest (the story contract, part 2).
+#:
+#: What is drawn behind the words is photographed, not worked out: the window with the letters' fill left out
+#: (site_probe.js, ``S.wordsOff``), so a scrim or a card under the words, a halo round them and a picture dimmed by
+#: CSS count as the viewer sees them. The contract's measure is the canvas alone; where nothing lies between the
+#: canvas and the words the two are the same picture.
+#:
+#: The picture under a line is averaged over squares WORDS_CELL to the type's size on a side (in linear light, as the
+#: eye adds up what it cannot resolve), each square is compared with the line's colour, and the tenth of the squares
+#: with the least contrast is left out (WORDS_WORST: the contract's "middle 80 % by luminance"; of the two tenths it
+#: drops, only the one nearest the words' own tone can lower the ratio). Why squares and not pixels: the halftone and
+#: glyph treatments print a picture in two inks (dots, text characters), where every pixel is paper or ink and a line
+#: in the ink's colour over dots that cover a tenth of the paper would read 1.0, however well it reads. What is finer
+#: than a letter's parts is a tone to the eye; what is their size hides them.
+#:
+#: Both choices, on one slide: the example deck's figure ("500 tonnes" at 185 px, a line at 29 px, its source at 17
+#: px) shown in the halftone theme as the deck stood before its merge, the words on the theme's scrim over a picture
+#: printed in their own ink. The canvas alone read pixel by pixel gives 1.3, 1.2 and 1.7 and would name three lines
+#: a viewer reads without effort; the canvas alone in squares 7.7, 7.0 and 3.3, and would still name the source; the
+#: photograph in squares 10.1, 10.1 and 5.0.
+#:
+#: Calibrated on the skill's film "Keeper" (halftone, dots 6 px apart on the desktop and 4.5 px on
+#: the phone, a headline in the ink's colour with a halo in the paper's), each frame looked at. Where the headline
+#: ships, in the dark lower left, its two lines read 9.8 and 7.2 at 41 px on the desktop and 11.7 and 11.0 at 16 px
+#: on the phone (against the canvas alone, the halo not counted: 6.7 and 4.2, 9.5 and 9.2). Moved up over the lit
+#: beam, five places per size: on the desktop the three lines whose last words are lost in the dots read 2.0 to 2.3
+#: and the seven that read with some effort 3.1 to 4.8; on the phone nine of the ten lines read 1.5 to 2.8 and are
+#: hard to read, and the one that clears the beam 6.4. Against the canvas alone the same lines read 1.1 to 2.3 on
+#: the desktop: the halo is why the headline can be read at all there. A headline set over the same film's morning
+#: scene (a light sky, the same light ink) reads 1.5 at both sizes, halo and all.
+WORDS_CELL = 4
+WORDS_WORST = 10
+WORDS_LARGE_PX = 24
+WORDS_BOLD_PX = 19
+WORDS_NEED_LARGE = 3.0
+WORDS_NEED = 4.5
+#: lines named one per sentence, per size, each with the beats it is hard to read at; the rest are named together
+#: (a deck whose ink is wrong for its picture has one such line on every slide)
+WORDS_LINES = 6
+#: how long a beat's text is given to come to rest before the window is photographed (site_probe.js, ``S.filmRest``):
+#: an entrance of half a second and its stagger, where the page lets one run after go(..., { settle: true })
+WORDS_REST_S = 1.5
+#: ... at this many beats of a visit. Text that is still changing after the wait (a line that pulses from script
+#: for as long as it is up) will be so at every beat, and 48 waits are 72 s: after these the text is read as it is.
+WORDS_RESTLESS = 3
+#: The reading of the words over the picture takes at most this long in all per visit (``_Visitor.beats``, which
+#: says what a beat costs): beats past it are photographed without it, and the measure says how many. On a film of
+#: 48 beats drawn by the starter's engine, every beat's two lines over the picture with a halo, it took 7 to 8 s at
+#: 1440 x 900 and 5 s at 390 x 844 of a check of 42 s. A page that draws a heavy frame for every photograph (a second
+#: each in software) would take 50 to 100 s without the bound, and the 48 beats would not all be photographed.
+WORDS_S = 20.0
+#: what the first finding about words says after its numbers; the others say the numbers only (``TEXT_IN_MOVE``)
+WORDS_RULE = (f" (WCAG's ratio; {WORDS_NEED_LARGE:g} for type of {WORDS_LARGE_PX} px and up or bold of {WORDS_BOLD_PX} px "
+              f"and up, {WORDS_NEED:g} for smaller type)")
+WORDS_FIX = (" Move the words over a {tone} or quieter part of the picture, or lay a scrim in the theme's paper behind "
+             "them.")
 
 _HERE = Path(__file__).resolve().parent
 _log = logging.getLogger(__name__)
@@ -453,10 +524,15 @@ class Beat:
     change: float | None = None    # share of the picture that differs from the beat before in its scene; None: none
     lines: list[str] = field(default_factory=list)  # info().lines
     foreign: list[str] = field(default_factory=list)  # of those, the lines the page's HTML does not hold
-    info: dict | None = None       # info() after go(), as checked
-    # the beat's element in the HTML (site_probe.js, ``S.filmBeat``): found, silent, over, text, shown, boxes,
-    # outside, scrolls; None: not read
+    info: dict | None = None       # info() after go(), as checked (``_film_info``): its layout says what the words are
+    # the beat's element in the HTML (site_probe.js, ``S.filmBeat``): found, silent, over, text, shown (any of the
+    # beat's own lines is drawn where a viewer can read it; 'faint': the fullest opacity they are drawn at where none
+    # is), boxes, outside, scrolls, and 'rest' (how the text came to rest, ``S.filmRest``); None: not read
     html: dict | None = None
+    # the scene's lines that lie over the picture at this beat, each with its contrast to what is drawn behind it
+    # (``words_contrast``): text, own (the beat's own line, not one shown since an earlier beat or the heading), px,
+    # bold, ratio, need, light, shadow, cells; [] none lies over the picture; None: not read
+    words: list[dict] | None = None
     call: str = ""          # why go() failed ('late' or 'rejected: ...'); '' it answered
     draws: int = 0
     triangles: int = 0
@@ -497,8 +573,10 @@ class Visit:
     # what one wheel notch from the top of the page changed (``_Visitor.first_notch``): {px, motion, window, canvas,
     # text}; None: not measured (not the desktop visit, a page shorter than two notches, or no time)
     first_notch: dict | None = None
-    # a film (window.__story): what the hook gave (``_film_hook``) and what the visit read through it: 'planned' (beats
-    # to photograph), 'total', 'beats_s', 'calls' (hook calls that failed: {call, method, why}), 'moves', 'key',
+    # a story (window.__story): what the hook gave (``_film_hook``) and what the visit read through it: 'planned' (beats
+    # to photograph), 'total', 'beats_s', of that 'rest_s' (the text brought to rest) and 'words_s' (the reading of the
+    # words over the picture; 'words_unread': the beats left without it once ``WORDS_S`` was used up), 'form' and
+    # 'theme' (info()'s, where it gives them), 'calls' (hook calls that failed: {call, method, why}), 'moves', 'key',
     # 'hash', 'reduced', 'story'; None: the page has no window.__story
     film: dict | None = None
     beats: list[Beat] = field(default_factory=list)
@@ -521,7 +599,8 @@ class SiteReport:
     stills: dict = field(default_factory=dict)
     # the test of the browser's screenshots (``camera``): 'true', 'layer', 'faulty' or '' (not known)
     camera: str = ""
-    # a film (window.__story at desktop or phone size): the hook as the first of those visits read it; {} a site
+    # a story (window.__story at desktop or phone size): the hook as the first of those visits read it, with the
+    # 'form' and 'theme' its info() gave; {} a site
     film: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ verdicts
@@ -1089,15 +1168,18 @@ class SiteReport:
                 + (f"; {_names(blank, 3)} show{'s' if len(blank) == 1 else ''} nothing but the background" if blank else "")
                 + notmade + ".")
 
-    # ------------------------------------------------------------------ a film
+    # ------------------------------------------------------------------ a story
 
     def film_lines(self) -> tuple[list[str], list[str]]:
-        """(broken, a viewer would notice) for a film: the page's own faults as a site's (errors, failed requests,
-        facts), then each finding of ``film_findings`` in its words, in the order found."""
+        """(broken, a viewer would notice) for a story: the page's own faults as a site's (errors, failed requests,
+        facts), then each finding of ``film_findings`` in its words, in the order found. The rule for words over the
+        picture and what to do about them are said once, at the first such finding."""
         broken = self._broken()
         noticed: list[str] = []
+        said = False
         for f in film_findings(self):
-            line = self._film_sentence(f)
+            line = self._film_sentence(f, again=said and f["kind"] in ("words", "more_words"))
+            said = said or f["kind"] in ("words", "more_words")
             (broken if f["broken"] else noticed).append(line)
         if weight := self.weight_line():
             noticed.append(weight)
@@ -1106,16 +1188,17 @@ class SiteReport:
                 noticed.append(r[0])
         return broken, noticed
 
-    def _film_sentence(self, f: dict) -> str:
-        """One finding of ``film_findings`` as the answer says it: who, what, where, the number, and what to do."""
+    def _film_sentence(self, f: dict, again: bool = False) -> str:
+        """One finding of ``film_findings`` as the answer says it: who, what, where, the number, and what to do.
+        ``again``: the rule and the remedy for words over the picture were said by an earlier finding."""
         k, size = f["kind"], f.get("size", "").capitalize()
         rel = lambda p: _rel(p, self.out_dir)  # noqa: E731
         if k == "missing":
-            return (f"window.__story lacks {_and(f['members'])}: the check steps the film through that hook (its members "
+            return (f"window.__story lacks {_and(f['members'])}: the check steps the story through that hook (its members "
                     f"are {', '.join(FILM_MEMBERS)}), and what it cannot call goes unchecked. Give the hook every member.")
         if k == "ready":
             if f["state"] == "rejected":
-                return (f"window.__story.ready rejected ({_q(f['why'], 100)}): the film never said it was ready. Its beats "
+                return (f"window.__story.ready rejected ({_q(f['why'], 100)}): the story never said it was ready. Its beats "
                         "were photographed all the same.")
             return (f"window.__story.ready did not resolve within {FILM_READY_S:.0f} s of the page loading: resolve it "
                     "once every scene has been drawn at each of its beats. Its beats were photographed all the same.")
@@ -1148,14 +1231,44 @@ class SiteReport:
         if k == "same":
             b, prev = f["beat"], f["prev"]
             return (f"{size}: beat {_beat_name(b)} shows the same picture as {_beat_name(prev)} before it "
-                    f"({_share(b.change)} of the picture differs): a beat must change something the viewer can see (a "
-                    f"camera move, an object, the light). Look at {rel(prev.frame)} and {rel(b.frame)}.")
+                    f"({_share(b.change)} of the picture differs) and only its caption changes: under a caption a beat "
+                    "must change something the viewer can see in the picture (a camera move, an object, the light). A "
+                    "beat that only adds words belongs on a slide (a scene whose info().layout is not 'caption'). "
+                    f"Look at {rel(prev.frame)} and {rel(b.frame)}.")
+        if k == "nothing":
+            b, prev = f["beat"], f["prev"]
+            return (f"{size}: beat {_beat_name(b)} changes nothing: it shows the same picture as {_beat_name(prev)} "
+                    f"before it ({_share(b.change)} of the picture differs) and no new words. A beat must change "
+                    "something the viewer can see: the picture (a camera move, an object, the light) or, on a slide, "
+                    f"the words. Look at {rel(prev.frame)} and {rel(b.frame)}.")
         if k == "still":
             m = f["move"]
-            return (f"Scene {_q(m['scene'], 60)} stands still: at its last beat ({m['beat']}) the picture at progress "
+            where = (f"at its last beat ({m['beat']})" if m.get("last", True)
+                     else f"at {m['beat']}, the last of its beats that changes the picture,")
+            return (f"Scene {_q(m['scene'], 60)} stands still: {where} the picture at progress "
                     f"0.3 and at 1 is the same, and so is the picture at ambient time 1 s and 3 s ({_share(m['p'])} and "
                     f"{_share(m['t'])} of it differs). Give each beat one slow camera move or one event, and the scene a "
                     "little ambient life (a flicker, rain, a turning light).")
+        if k == "unseen":
+            beats = f["beats"]
+            if len(beats) == 1:
+                faint = (beats[0].html or {}).get("faint")
+                how = ("none of its lines is drawn (display: none, visibility: hidden or a box without size)"
+                       if faint is None else f"its lines are drawn at {faint:.0%} opacity (under half its opacity a "
+                                             "line is not counted as shown)")
+                what = f"the words of beat {_beat_name(beats[0])} are in the page and are not shown there: {how}"
+            else:
+                what = (f"the words of beats {_beat_names(beats)} are in the page and are not shown there: none of "
+                        "their lines is drawn where a viewer can read it (display: none, visibility: hidden, a box "
+                        "without size, or under half its opacity)")
+            # lines read while they were still coming in (the wait of S.filmRest ran out): said, so that an entrance
+            # that ignores settle is not taken for words that are never shown
+            moving = [b for b in beats if ((b.html or {}).get("rest") or {}).get("settled") is False]
+            note = ((" The text was still changing when it was read" + (f" at {_beat_names(moving, 3)}" if len(beats) > 1 else "")
+                     + ": go(id, beat, { settle: true }) is to show a beat's lines whole at once.") if moving else "")
+            return (f"{_and(f['sizes']).capitalize()}: {what}. The viewer gets the picture without its words. Show a "
+                    "beat's lines while it is the current beat, or mark its <div data-beat> data-silent where it is "
+                    f"meant to have none.{note} Look at {rel(beats[0].frame)}.")
         if k == "caption":
             b, h = f["beat"], f["beat"].html
             if h.get("scrolls"):
@@ -1164,8 +1277,34 @@ class SiteReport:
             else:
                 how = (f"{h['outside']} of its {h['boxes']} line boxes lie outside "
                        + ("the picture or the window" if h.get("over") else "the window or the box that holds them"))
-            return (f"{size}: the {'headline' if h.get('over') else 'caption'} of beat {_beat_name(b)} does not fit: "
-                    f"{how}. Shorten the line, or give it more room at this size. Look at {rel(b.frame)}.")
+            if h.get("over") or _layout(b) == CAPTION:
+                return (f"{size}: the {'headline' if h.get('over') else 'caption'} of beat {_beat_name(b)} does not "
+                        f"fit: {how}. Shorten the line, or give it more room at this size. Look at {rel(b.frame)}.")
+            also = f" (nor at {_beat_names(f['also'], 4)})" if f.get("also") else ""
+            return (f"{size}: the slide's text at beat {_beat_name(b)} does not fit{also}: {how}. Shorten the lines, put "
+                    f"fewer on the slide, or give them more room at this size. Look at {rel(b.frame)}.")
+        if k == "words":
+            beats = f["beats"]
+            type_ = f"{f['px']:.0f} px{' bold' if f['bold'] else ''} type"
+            worst = f" at worst ({_beat_name(f['worst'])})" if len(beats) > 1 else ""
+            head = f"{size}: {_first_words(f['text'])} is hard to read over the picture at {_beat_names(beats, 4)}: {type_} "
+            if again:
+                return (head + f"at a contrast of {_ratio(f['ratio'], f['need'])}{worst}, where it needs {f['need']:g}. "
+                        f"Look at {rel(f['worst'].frame)}.")
+            return (head + f"at a contrast of {_ratio(f['ratio'], f['need'])} with what is drawn behind it{worst}, where "
+                    f"it needs {f['need']:g}{WORDS_RULE}." + WORDS_FIX.format(tone="darker" if f["light"] else "lighter")
+                    + f" Look at {rel(f['worst'].frame)}.")
+        if k == "more_words":
+            lines = f["lines"]
+            low = min(lines, key=lambda g: g["ratio"] / g["need"])
+            beats = sorted({b.order: b for g in lines for b in g["beats"]}.values(), key=lambda b: b.order)
+            return (f"{size}: {len(lines)} more line{_s(lines)} {'is' if len(lines) == 1 else 'are'} hard to read over the "
+                    f"picture, at {_beat_names(beats, 4)}: the furthest under its bar is {_first_words(low['text'], 48)} at a "
+                    f"contrast of {_ratio(low['ratio'], low['need'])} ({_beat_name(low['worst'])}, {low['px']:.0f} px"
+                    f"{' bold' if low['bold'] else ''} type, which needs {low['need']:g})"
+                    + ("" if again else WORDS_RULE) + "."
+                    + ("" if again else WORDS_FIX.format(tone="darker" if low["light"] else "lighter"))
+                    + " The contact sheet marks their beats 'hard to read'.")
         if k == "long":
             b = f["beat"]
             return (f"Beat {_beat_name(b)}: a line of {len(f['line'])} characters ({_q(f['line'], 60)}): over "
@@ -1180,17 +1319,61 @@ class SiteReport:
         if k == "key":
             got = f["got"]
             went = ("stayed there" if got == f["from"] else f"went to {got}") if got else f"did not say where it was ({f['why']})"
-            return (f"The right arrow key does not advance: pressed at {f['from']}, the film {went} (the next beat is "
+            return (f"The right arrow key does not advance: pressed at {f['from']}, the story {went} (the next beat is "
                     f"{f['want']}). Listen for ArrowRight on window and call advance(), as the contract's keys say.")
         if k == "hash":
             got = f["got"]
             showed = f"showed {got}" if got else f"did not say which beat it showed ({f['why']})"
-            return (f"The hash does not open its beat: opened at {f['want']}, the film {showed} once ready. Read "
-                    "location.hash once the film is ready, and on hashchange, and go to that beat.")
+            return (f"The hash does not open its beat: opened at {f['want']}, the story {showed} once ready. Read "
+                    "location.hash once the story is ready, and on hashchange, and go to that beat.")
         raise ValueError(k)
 
+    def words_only_line(self) -> str:
+        """The measure of the beats that add words to a slide and leave its picture as it was (``same_picture``): a
+        deck does this on purpose, so they are counted, not named as faults. A beat the two sizes disagree on says
+        at which size its picture held."""
+        sized = [name for name in ("desktop", "phone") if (v := self.visits.get(name)) and v.film]
+        at: dict[str, list[str]] = {}
+        order: dict[str, int] = {}
+        for name in sized:
+            for b, _, what in same_picture(self.visits[name]):
+                if what == "words":
+                    at.setdefault(_beat_name(b), []).append(name)
+                    order[_beat_name(b)] = b.order
+        if not at:
+            return ""
+        names = [n + ("" if len(at[n]) == len(sized) else f" ({_and(at[n])} only)") for n in sorted(at, key=order.get)]
+        return ("Beats that change only the words (a slide gains a line and its picture holds, which a deck may do): "
+                + (_and(names) if len(names) <= 12 else ", ".join(names[:12]) + f" and {len(names) - 12} more") + ".")
+
+    def words_line(self) -> str:
+        """The measure of the words over the picture: per size, how many lines were read and the one nearest its bar
+        (the least ratio over what its size needs), so that a line that only just passes is seen. The rule is said
+        here unless a finding above has said it."""
+        parts, named = [], False
+        for name in ("desktop", "phone"):
+            v = self.visits.get(name)
+            read = [(b, w) for b in (v.beats if v else []) for w in b.words or [] if w.get("ratio") is not None]
+            unread = int(((v.film if v else None) or {}).get("words_unread") or 0)
+            if not read and not unread:
+                continue
+            part = f"{name} no line read"
+            if read:
+                named = named or any(w["ratio"] < w["need"] for _, w in read)
+                b, w = min(read, key=lambda x: x[1]["ratio"] / x[1]["need"])
+                n = len({(x.scene, y["text"]) for x, y in read})
+                part = (f"{name} {n} line{_s(n)}, the nearest to its bar {_first_words(w['text'], 48)} at "
+                        f"{_ratio(w['ratio'], w['need'])} ({_beat_name(b)}, {w['px']:.0f} px{' bold' if w['bold'] else ''}, "
+                        f"needs {w['need']:g})")
+            parts.append(part + (f", and {unread} beat{_s(unread)} with words over the picture not read (the {WORDS_S:.0f} s "
+                                 "the reading has were used up)" if unread else ""))
+        if not parts:
+            return ""
+        return ("Words over the picture, their contrast with what is drawn behind them" + ("" if named else WORDS_RULE)
+                + ": " + "; ".join(parts) + ".")
+
     def film_reduced_line(self) -> tuple[str, bool] | None:
-        """(the line, whether the film handles it): a beat reached under reduce motion is shown finished at once."""
+        """(the line, whether the story handles it): a beat reached under reduce motion is shown finished at once."""
         r = self.visits.get("reduced")
         if not r:
             return None
@@ -1211,14 +1394,14 @@ class SiteReport:
         if same:
             return (f"With reduce motion set {asks}; beat {got['beat']}, reached with advance(), is shown finished at once: "
                     f"two pictures of the window a second apart are the same ({_share(got['change'])} of it differs), "
-                    f"caption included. Picture: {_rel(r.frame, self.out_dir)}.", True)
+                    f"its words included. Picture: {_rel(r.frame, self.out_dir)}.", True)
         return (f"With reduce motion set {asks}, and beat {got['beat']}, reached with advance(), still changes a second "
                 f"after it began ({_share(got['change'])} of the window differs): a viewer who asked for less motion "
-                "gets it all. Under the setting show a beat finished at once, its caption whole and ambient time "
+                "gets it all. Under the setting show a beat finished at once, its words whole and ambient time "
                 f"stopped. Picture: {_rel(r.frame, self.out_dir)}.", False)
 
     def film_nowebgl_line(self) -> tuple[str, bool] | None:
-        """(the line, whether the film handles it): without WebGL the story's text is readable, the hook says
+        """(the line, whether the story handles it): without WebGL the story's text is readable, the hook says
         mode 'no-webgl', and nothing is thrown."""
         w = self.visits.get("nowebgl")
         if not w:
@@ -1260,7 +1443,7 @@ class SiteReport:
                 + notmade + ".")
 
     def film_text(self) -> str:
-        """The answer for a film: the site's parts and wording, beats where a site has steps."""
+        """The answer for a story: the site's parts and wording, beats where a site has steps."""
         broken, noticed = self.film_lines()
         head = (f"STORY CHECKED in {self.seconds:.0f} s: "
                 + (f"{len(broken)} thing{_s(broken)} broken" if broken else "nothing broken")
@@ -1279,7 +1462,11 @@ class SiteReport:
         lines += ["", "Measures:"]
         f = self.film
         ready = f.get("ready") or {}
-        lines.append(f"- Film: {_q(f.get('title') or '', 80)}, treatment {_q(f.get('treatment') or '', 40)}, "
+        # the form and the theme, where info() gives them: which of the story's looks these pictures are of
+        form, theme = f.get("form"), f.get("theme")
+        kind = (f", a {form}" if form in ("deck", "film") else f", form {_q(form, 20)}" if form else "")
+        kind += (f" in the theme {_q(theme, 40)}" if kind else f", theme {_q(theme, 40)}") if theme else ""
+        lines.append(f"- Story: {_q(f.get('title') or '', 80)}{kind}, treatment {_q(f.get('treatment') or '', 40)}, "
                      f"{len(f.get('scenes') or [])} scene{_s(f.get('scenes') or [])} and {f.get('total', 0)} "
                      f"beat{_s(f.get('total', 0))}"
                      + (f"; ready {ready['s']:.1f} s after the page was asked for ({f.get('size', 'desktop')})"
@@ -1295,21 +1482,39 @@ class SiteReport:
             sampled = (f" (sampled evenly: each scene's last beat and an even spread of the rest, at most "
                        f"{FILM_BEATS_MAX})" if v.film.get("planned", 0) < v.film.get("total", 0) else "")
             shot = len([b for b in v.beats if b.frame])
+            # text that had not come to rest when its beat was photographed (the wait of S.filmRest ran out, or was
+            # no longer given): those frames, and what is read from them of the words, show a slide part way
+            moving = [b for b in v.beats if ((b.html or {}).get("rest") or {}).get("settled") is False]
             lines.append(f"- {name.capitalize()} {vp['width']}x{vp['height']}: {shot} of {v.film.get('total', 0)} "
                          f"beats photographed{sampled} ({v.film.get('beats_s', 0):.0f} s); share of the picture showing "
-                         "something, per beat: " + "; ".join(f"{s} " + " ".join(x) for s, x in per.items()) + ".")
+                         "something, per beat: " + "; ".join(f"{s} " + " ".join(x) for s, x in per.items()) + "."
+                         + (f" The words were still changing when photographed at {_beat_names(moving, 4)}: those "
+                            "frames may show them on their way in (go(id, beat, { settle: true }) is to show a beat's "
+                            "lines whole at once)." if moving else ""))
+        for line in (self.words_only_line(), self.words_line()):
+            if line:
+                lines.append(f"- {line}")
         d = self.visits.get("desktop")
         moves = [m for m in ((d.film or {}).get("moves") or [])] if d else []
         read = [m for m in moves if m.get("p") is not None and m.get("t") is not None]
         if read:
-            lines.append("- Motion while a beat plays (desktop, at each scene's last beat; share of the picture that "
+            where = ("at each scene's last beat" if all(m.get("last", True) for m in read)
+                     else "at each scene's last beat that changes its picture")
+            lines.append(f"- Motion while a beat plays (desktop, {where}; share of the picture that "
                          "differs between progress 0.3 and 1, and between ambient time 1 s and 3 s): "
                          + "; ".join(f"{m['scene']} {_share(m['p'])} and {_share(m['t'])}" for m in read) + ".")
         key, hsh = ((d.film or {}).get("key") if d else None), ((d.film or {}).get("hash") if d else None)
-        if key and key.get("got") == key.get("want"):
+        # not read is not a fault of the story: this browser draws in software, beside the other visits
+        if key and key.get("unread"):
+            lines.append(f"- The right arrow key, pressed at {key['from']}: whether it advances was not read "
+                         f"({key['unread']}: it was busy drawing, which takes long in this browser).")
+        elif key and key.get("got") == key.get("want"):
             lines.append(f"- The right arrow key goes from {key['from']} to {key['want']}.")
-        if hsh and hsh.get("got") == hsh.get("want"):
-            lines.append(f"- Opened at {hsh['want']}, the film shows that beat.")
+        if hsh and hsh.get("unread"):
+            lines.append(f"- Opened at {hsh['want']}: whether the hash opens its beat was not read ({hsh['unread']}: "
+                         "the page was loaded a second time, and drawing takes long in this browser).")
+        elif hsh and hsh.get("got") == hsh.get("want"):
+            lines.append(f"- Opened at {hsh['want']}, the story shows that beat.")
         if line := self.bytes_line("all beats"):
             lines.append(f"- {line}")
         if d and d.probe is not None and d.beats:
@@ -1724,7 +1929,7 @@ def _short(url: str, v: Visit) -> str:
     return name or "the page itself"
 
 
-# --------------------------------------------------------------------------- a film
+# --------------------------------------------------------------------------- a story (a deck or a film)
 
 
 def _share(x: float | None) -> str:
@@ -1741,7 +1946,158 @@ def _beat_name(b: Beat) -> str:
 
 
 def _beat_names(beats: list[Beat], n: int = 6) -> str:
-    return _and([_beat_name(b) for b in beats[:n]]) + (f" and {len(beats) - n} more" if len(beats) > n else "")
+    if len(beats) > n:
+        return ", ".join(_beat_name(b) for b in beats[:n]) + f" and {len(beats) - n} more"
+    return _and([_beat_name(b) for b in beats])
+
+
+def _first_words(text: str, n: int = 60) -> str:
+    """A line as the answer names it, in quotes: whole when it has at most ``n`` characters, else its first words up
+    to there, cut between two words (the agent looks for them in the page's HTML)."""
+    t = " ".join(str(text).split())
+    if len(t) <= n:
+        return f"'{t}'"
+    head = t[:n + 1]
+    return f"'{head.rsplit(' ', 1)[0] if ' ' in head[n // 2:] else t[:n]}...'"
+
+
+def _ratio(r: float, need: float) -> str:
+    """A contrast ratio as the answer writes it: to one decimal, or to two where one would put it on the other side
+    of what the type needs (2.96 under a bar of 3 is not "3.0")."""
+    s = f"{r:.1f}"
+    return s if (float(s) >= need) == (r >= need) else f"{r:.2f}"
+
+
+def _layout(b: Beat) -> str:
+    """How the beat's scene lays out its words (``info().layout``); a page that says nothing shows captions."""
+    return (b.info or {}).get("layout") or CAPTION
+
+
+def same_picture(v: Visit) -> list[tuple[Beat, Beat, str]]:
+    """The beats of a visit that show the picture of the beat before them in their scene (``FILM_SAME``), each with
+    that beat and what the beat is then:
+
+    - 'nothing': it brings no new words either. Nothing a viewer can see changes: a fault in every layout;
+    - 'caption': only the caption changes. Under a caption the picture is what a beat is for: a fault, as before;
+    - 'words': a slide gains words and its picture holds. A deck does that on purpose (a list built line by line, a
+      figure and then its source): counted in a measure, never named.
+
+    A beat's words are the lines it brings (``info().lines``, the current beat's own: on a slide, where the beats
+    before stay up, they are what the beat adds). A caption shows one beat's lines in place of the last one's, so
+    there the words are new only if they differ from the lines of the beat before."""
+    out = []
+    at = {(b.scene, b.beat): b for b in v.beats}
+    for b in v.beats:
+        prev = at.get((b.scene, b.beat - 1))
+        if prev is None or b.change is None or b.change >= FILM_SAME:
+            continue
+        slide = _layout(b) != CAPTION
+        new = bool(b.lines) and (slide or b.lines != prev.lines)
+        out.append((b, prev, "nothing" if not new else "words" if slide else "caption"))
+    return out
+
+
+def words_unseen(b: Beat) -> bool:
+    """The beat has words and shows none of them: it is not marked silent, ``info().lines`` gives lines, its element
+    is in the HTML, and none of that element's lines is drawn where a viewer can read it (site_probe.js,
+    ``S.filmBeat``: ``shown``, which is about the beat's own lines, so on a slide about the ones this beat adds; a
+    speaker's note is never a line). A beat that was not read (no answer from the page) says nothing either way."""
+    h = b.html or {}
+    return bool(b.lines) and h.get("found") is True and h.get("shown") is False and not h.get("silent")
+
+
+def words_need(px: float, bold: bool) -> float:
+    """The least contrast type of this size may have with what is behind it (WCAG 1.4.3: 3 for large type, 4.5 for
+    the rest). The size is rounded to the pixel, as the answer writes it: 18.7 px bold is WCAG's 14 pt bold."""
+    large = round(px) >= WORDS_LARGE_PX or (bold and round(px) >= WORDS_BOLD_PX)
+    return WORDS_NEED_LARGE if large else WORDS_NEED
+
+
+#: sRGB to linear light, for a channel of 0..255
+_LINEAR = np.where(np.arange(256) <= 0.04045 * 255, np.arange(256) / 255 / 12.92, ((np.arange(256) / 255 + 0.055) / 1.055) ** 2.4)
+#: the weights of red, green and blue in WCAG's relative luminance
+_LUMA = np.array([0.2126, 0.7152, 0.0722])
+
+
+def words_contrast(behind: bytes, runs: list[dict], window: tuple[float, float], plain: bytes | None = None) -> list[dict]:
+    """The contrast of each line over the picture with what is drawn behind it, as a WCAG ratio (``WORDS_CELL`` says
+    how and why): ``behind`` is the window photographed with the letters' fill left out, ``runs`` the lines as
+    site_probe.js found them (``wordsOver``: text, px, bold, colour, alpha, shadow, rects in CSS px), ``window`` the
+    window's size in CSS px. Returns one dict per run that has a picture under it: text, own, px, bold, ratio, need
+    (``words_need``), light (the words are lighter than what is behind them), shadow, cells.
+
+    Per run: the picture under each of its line boxes is averaged over squares of a quarter of the type's size, in
+    linear light; each square's ratio to the line's colour is (lighter + 0.05) / (darker + 0.05) of the two relative
+    luminances; the run's ratio is the one nine tenths of its squares reach. A line drawn part see-through (an alpha
+    under 1: a muted colour, an opacity) is compared as it is seen, mixed with the square behind it the way the
+    browser mixes them (in sRGB values).
+
+    ``plain``: the same photograph with the words' shadows left out as well, given where a run has a shadow of its
+    own. Such a run takes the better of its two ratios: a dark halo round light words is a ground of the words' own
+    and counts for them; a glow in the words' own colour, which lies densest under their strokes, where the viewer
+    never sees it, must not count against them."""
+    from PIL import Image
+
+    def squares(a: np.ndarray, run: dict) -> np.ndarray:
+        """The run's squares as linear RGB, one row each."""
+        sx, sy = a.shape[1] / window[0], a.shape[0] / window[1]
+        side = max(1, round(run["px"] / WORDS_CELL * sx))
+        out = []
+        for x0, y0, x1, y1 in run["rects"]:
+            crop = a[max(0, round(y0 * sy)):max(0, round(y1 * sy)), max(0, round(x0 * sx)):max(0, round(x1 * sx))]
+            h, w = crop.shape[:2]
+            if h < 1 or w < 1:
+                continue
+            th, tw = min(side, h), min(side, w)  # a box under one square either way is one row or one column of them
+            ny, nx = h // th, w // tw
+            lin = _LINEAR[crop[:ny * th, :nx * tw]]
+            out.append(lin.reshape(ny, th, nx, tw, 3).mean(axis=(1, 3)).reshape(-1, 3))
+        return np.concatenate(out) if out else np.zeros((0, 3))
+
+    def ratio(cells: np.ndarray, run: dict) -> tuple[float, bool]:
+        ground = cells @ _LUMA
+        colour = np.asarray(run["colour"], dtype=np.float64) / 255.0
+        alpha = float(run.get("alpha", 1.0))
+        if alpha < 0.995:
+            encoded = np.where(cells <= 0.0031308, cells * 12.92, 1.055 * np.maximum(cells, 1e-9) ** (1 / 2.4) - 0.055)
+            seen = alpha * colour + (1 - alpha) * encoded
+        else:
+            seen = np.broadcast_to(colour, cells.shape)
+        words = np.where(seen <= 0.04045, seen / 12.92, ((seen + 0.055) / 1.055) ** 2.4) @ _LUMA
+        r = (np.maximum(words, ground) + 0.05) / (np.minimum(words, ground) + 0.05)
+        return float(np.percentile(r, WORDS_WORST)), bool(np.median(words) > np.median(ground))
+
+    pictures = [np.asarray(Image.open(io.BytesIO(p)).convert("RGB")) for p in (behind, plain) if p]
+    out = []
+    for run in runs:
+        px = float(run.get("px") or 0)
+        if px <= 0 or not run.get("rects"):
+            continue
+        cells = [c for a in (pictures if run.get("shadow") else pictures[:1]) if len(c := squares(a, run))]
+        if not cells:
+            continue
+        best, light = max(ratio(c, run) for c in cells)
+        out.append({"text": str(run.get("text") or "")[:80], "own": bool(run.get("own")), "px": round(px, 1),
+                    "bold": bool(run.get("bold")), "ratio": round(best, 2), "need": words_need(px, bool(run.get("bold"))),
+                    "light": light, "shadow": bool(run.get("shadow")), "cells": len(cells[0])})
+    return out
+
+
+def hard_words(v: Visit) -> list[dict]:
+    """The lines of a visit that are hard to read over the picture (a ratio under what their size needs), one entry
+    per line in the story's order, a line that stays up through several beats being one: scene, text, the beats it
+    is hard to read at, and of the worst of them its beat ('worst'), ratio, px, bold, need and light."""
+    found: dict[tuple[str, str], dict] = {}
+    for b in v.beats:
+        for w in b.words or []:
+            if w.get("ratio") is None or w["ratio"] >= w["need"]:
+                continue
+            g = found.setdefault((b.scene, w["text"]), {"scene": b.scene, "text": w["text"], "beats": [], "ratio": None})
+            if not g["beats"] or g["beats"][-1] is not b:
+                g["beats"].append(b)
+            if g["ratio"] is None or w["ratio"] < g["ratio"]:
+                g.update(ratio=w["ratio"], worst=b, px=w["px"], bold=w["bold"], need=w["need"], light=w["light"])
+    return list(found.values())
 
 
 def film_order(scenes: list[dict]) -> list[tuple[str, int]]:
@@ -1815,10 +2171,11 @@ def foreign_lines(lines: list[str], text: str) -> list[str]:
 
 
 def film_findings(rep: SiteReport) -> list[dict]:
-    """What the answer says of a film beyond a site's faults, in its order: one dict per finding with 'kind', 'broken'
+    """What the answer says of a story beyond a site's faults, in its order: one dict per finding with 'kind', 'broken'
     (True: must be fixed; False: a viewer would notice) and what its sentence needs (``SiteReport._film_sentence``).
     A fault of a beat's lines (none, not in the HTML, too long) is a fault of the page and is named once, whichever size
-    found it; a fault of a picture is named per size."""
+    found it; a fault of a picture, or of words over it, is named per size (words that are not shown: once, where both
+    sizes hide the same beats)."""
     out: list[dict] = []
     f = rep.film
     if f.get("missing"):
@@ -1856,20 +2213,38 @@ def film_findings(rep: SiteReport) -> list[dict]:
     if rep.hosts_line():
         out.append({"kind": "hosts", "broken": True})
     for name, v in sized:
-        prev = {(b.scene, b.beat): b for b in v.beats}
-        for b in v.beats:
-            p = prev.get((b.scene, b.beat - 1))
-            if p is not None and b.change is not None and b.change < FILM_SAME:
-                out.append({"kind": "same", "broken": False, "size": name, "beat": b, "prev": p})
+        for b, prev, what in same_picture(v):
+            if what != "words":  # a slide that gains words under a picture that holds is a measure (words_only_line)
+                out.append({"kind": "nothing" if what == "nothing" else "same", "broken": False, "size": name,
+                            "beat": b, "prev": prev})
     d = rep.visits.get("desktop")
     for m in ((d.film or {}).get("moves") or []) if d else []:
         if m.get("p") is not None and m.get("t") is not None and m["p"] < FILM_SAME and m["t"] < FILM_SAME:
             out.append({"kind": "still", "broken": False, "move": m})
+    unseen = {name: [b for b in v.beats if words_unseen(b)] for name, v in sized}
+    if len(sized) == 2 and unseen[sized[0][0]] and len({tuple((b.scene, b.beat) for b in bs) for bs in unseen.values()}) == 1:
+        # the same beats at both sizes, as a rule that hides the words does: said once
+        out.append({"kind": "unseen", "broken": False, "sizes": [name for name, _ in sized], "beats": unseen[sized[0][0]]})
+    else:
+        out += [{"kind": "unseen", "broken": False, "sizes": [name], "beats": bs} for name, bs in unseen.items() if bs]
     for name, v in sized:
+        slides: dict[str, dict] = {}
         for b in v.beats:
             h = b.html or {}
-            if h.get("shown") and (h.get("scrolls") or h.get("outside")):
+            if not (h.get("scrolls") or h.get("outside")):
+                continue
+            if h.get("over") or _layout(b) == CAPTION:
                 out.append({"kind": "caption", "broken": False, "size": name, "beat": b})
+            elif b.scene in slides:  # a slide keeps its lines up: what does not fit at one beat does not at the next
+                slides[b.scene]["also"].append(b)
+            else:
+                slides[b.scene] = {"kind": "caption", "broken": False, "size": name, "beat": b, "also": []}
+                out.append(slides[b.scene])
+    for name, v in sized:
+        hard = hard_words(v)
+        out += [{"kind": "words", "broken": False, "size": name, **g} for g in hard[:WORDS_LINES]]
+        if len(hard) > WORDS_LINES:
+            out.append({"kind": "more_words", "broken": False, "size": name, "lines": hard[WORDS_LINES:]})
     for b in ordered:
         for line in b.lines:
             if len(line) > FILM_LINE_CHARS:
@@ -1885,7 +2260,8 @@ def film_findings(rep: SiteReport) -> list[dict]:
                             "other_content": [x for _, x in low]})
     for k in ("key", "hash"):
         r = (d.film or {}).get(k) if d else None
-        if r and r.get("want") and r.get("got") != r["want"]:
+        # a page opened at a hash that gave no story to ask says nothing of the hash (``film_hash``; a measure says so)
+        if r and r.get("want") and r.get("got") != r["want"] and not r.get("unread"):
             out.append({"kind": k, "broken": False, **r})
     return out
 
@@ -1916,16 +2292,42 @@ def _film_hook(got: Any) -> dict | None:
                       "s": round(at / 1000, 2) if isinstance(at, (int, float)) and math.isfinite(at) and at >= 0 else None}}
 
 
+def _word_runs(got: Any) -> list[dict]:
+    """The lines over the picture as site_probe.js found them (``wordsOver``), every field checked again: what a page
+    hands back is the page's."""
+    def num(v: Any, lo: float, hi: float) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and lo <= v <= hi else None
+
+    out: list[dict] = []
+    for r in got[:24] if isinstance(got, list) else []:
+        if not isinstance(r, dict):
+            continue
+        px, alpha, colour = num(r.get("px"), 1, 2000), num(r.get("alpha"), 0, 1), r.get("colour")
+        rects = [[float(x) for x in q] for q in (r.get("rects") if isinstance(r.get("rects"), list) else [])[:12]
+                 if isinstance(q, list) and len(q) == 4 and all(num(x, -1e5, 1e5) is not None for x in q)
+                 and q[2] > q[0] and q[3] > q[1]]
+        if (px is None or alpha is None or not isinstance(colour, list) or len(colour) != 3
+                or any(num(c, 0, 255) is None for c in colour) or not rects):
+            continue
+        out.append({"text": " ".join(str(r.get("text") or "").split())[:80], "own": r.get("own") is True, "px": px,
+                    "bold": r.get("bold") is True, "colour": [float(c) for c in colour], "alpha": alpha,
+                    "shadow": r.get("shadow") is True, "rects": rects})
+    return out
+
+
 def _film_info(i: Any) -> dict | None:
     """info() as site_probe.js cut it (``cleanInfo``), checked again."""
     if not isinstance(i, dict):
         return None
     beat = i.get("beat")
+    text = lambda k, n: str(i[k]).strip()[:n] if isinstance(i.get(k), str) and i[k].strip() else None  # noqa: E731
     return {"scene": str(i["scene"])[:80] if isinstance(i.get("scene"), str) else None,
             "beat": beat if isinstance(beat, int) and not isinstance(beat, bool) else None,
             "lines": [str(x)[:2000] for x in (i.get("lines") or [])[:8] if isinstance(x, str)],
             "place": str(i.get("place") or "")[:20], "cut": str(i["cut"])[:40] if isinstance(i.get("cut"), str) else None,
-            "playing": i.get("playing") is True}
+            "playing": i.get("playing") is True,
+            # the scene's layout (None: a caption), and the story's form and theme, where the hook gives them
+            "layout": text("layout", 20), "form": text("form", 20), "theme": text("theme", 40)}
 
 
 def _where_info(i: dict | None) -> str:
@@ -2168,26 +2570,29 @@ def sheet_flags(s: Step, held: set[int], small: set[int]) -> list[str]:
                             ("text mid-move", _text_in_move(s) and any(c or h for c, h in faults))) if on]
 
 
-def film_flags(b: Beat) -> list[str]:
-    """The few words a film's contact sheet writes under a beat's tile, one per thing found there."""
+def film_flags(b: Beat, same: str = "") -> list[str]:
+    """The few words a story's contact sheet writes under a beat's tile, one per thing found there. ``same``: what the
+    beat is where its picture is the one before it (``same_picture``); a slide that only gains words is no finding."""
     h = b.html or {}
     return [f for f, on in (("empty", b.content is not None and b.content < EMPTY_CONTENT),
-                            ("same", b.change is not None and b.change < FILM_SAME),
+                            ("same", same == "caption"), ("no change", same == "nothing"),
                             ("no line", b.info is not None and not b.lines and not h.get("silent")),
-                            ("not in HTML", bool(b.foreign)),
-                            ("does not fit", bool(h.get("shown") and (h.get("scrolls") or h.get("outside"))))) if on]
+                            ("not in HTML", bool(b.foreign)), ("words not shown", words_unseen(b)),
+                            ("does not fit", bool(h.get("scrolls") or h.get("outside"))),
+                            ("hard to read", any(w["ratio"] < w["need"] for w in b.words or []))) if on]
 
 
 def film_sheet(v: Visit, out: Path) -> bool:
-    """A film's contact sheet: one tile per beat photographed, labelled with the scene, the beat (from 1) and its first
+    """A story's contact sheet: one tile per beat photographed, labelled with the scene, the beat (from 1) and its first
     line cut short (``FILM_LABEL_CHARS``), the findings in red. False: no beat was photographed."""
     n = FILM_LABEL_CHARS.get(v.name, 20)
+    same = {(b.scene, b.beat): what for b, _, what in same_picture(v)}
     frames = []
     for b in v.beats:
         if not b.frame:
             continue
         first = " ".join((b.lines or [""])[0].split())
-        flags = film_flags(b)
+        flags = film_flags(b, same.get((b.scene, b.beat), ""))
         label = f"{b.scene} {b.beat + 1}  " + (first[:n] + ("..." if len(first) > n else "") if first else "(no line)")
         frames.append((b.frame, label + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
     if frames:
@@ -2987,15 +3392,15 @@ class _Visitor:
                 continue
             st.faded = [g for g in (_faded_group(x) for x in r["groups"][:SUBJECTS_READ]) if g]
 
-    # ---- a film
+    # ---- a story (a deck or a film)
     async def read_film(self, page, wait: float) -> None:
-        """Whether the page is a film (window.__story), and its hook after waiting at most ``wait`` for ready: sets
+        """Whether the page is a story (window.__story), and its hook after waiting at most ``wait`` for ready: sets
         ``Visit.film`` to {'hook': ...}, or leaves it None for a page without the hook."""
         got = await _bounded(page, f"window.__agySite.filmWait({round(wait * 1000)})", None, wait + 3.0)
         hook = _film_hook(got)
         if hook is not None:
             self.v.film = {"hook": hook, "calls": []}
-            self.log(f"a film: {hook['total']} beats in {len(hook['scenes'])} scenes, ready {hook['ready']}")
+            self.log(f"a story: {hook['total']} beats in {len(hook['scenes'])} scenes, ready {hook['ready']}")
 
     async def film_call(self, page, method: str, args: list, picture: str | None, lost: str) -> dict | None:
         """One call of the film's hook, bounded by ``FILM_CALL_S`` (in the page, and here for a page stuck in its own
@@ -3010,7 +3415,7 @@ class _Visitor:
             why = str((got or {}).get("why") or "late")[:200] if isinstance(got, dict) else "late"
             if why != "missing":  # a member the hook lacks is named once, with the others
                 self.v.film["calls"].append({"call": call, "method": method, "why": why, "lost": lost})
-            self.log(f"film: {call} failed ({why})")
+            self.log(f"story: {call} failed ({why})")
             self.why = why
             return None
         return got
@@ -3031,16 +3436,52 @@ class _Visitor:
             return await asyncio.wait_for(self.canvas_alone(page, end["rect"]), FILM_CALL_S)
         return None
 
+    async def words(self, page, runs: list[dict], window: tuple[float, float]) -> list[dict] | None:
+        """The lines over the picture read against what is drawn behind them (``words_contrast``): the window
+        photographed with the letters' fill left out (site_probe.js, ``S.wordsOff``, says why a photograph), and,
+        only where a line with a shadow of its own then reads under what its size needs, once more with the words'
+        shadows left out as well, the line keeping the better of its two readings. So a halo that does its work
+        costs one photograph, and a glow is never held against its words. The page is put back whatever happens;
+        None where it could not be photographed."""
+        off = lambda mode: _bounded(page, f"window.__agySite.wordsOff({mode})", None)  # noqa: E731
+        try:
+            if await off(1) is not True:
+                return None
+            fill = await asyncio.wait_for(self.shot(), FILM_CALL_S)
+            read = words_contrast(fill, runs, window)
+            if any(w["shadow"] and w["ratio"] < w["need"] for w in read) and await off(2) is True:
+                read = words_contrast(fill, runs, window, await asyncio.wait_for(self.shot(), FILM_CALL_S))
+            return read
+        except Exception:  # noqa: BLE001  a page that cannot be photographed now: the beat goes without the reading
+            return None
+        finally:
+            await off(0)
+
     async def beats(self, page, stills: bool) -> dict:
-        """Photograph the film beat by beat (``film_sample``): go(scene, beat) settled, two frames, the window, the
-        picture alone, info(), and what the HTML says of that beat (site_probe.js, ``S.filmBeat``). With ``stills``,
-        each scene's last beat is also written as ``stills/<scene id>.webp``. Returns the stills record."""
+        """Photograph the story beat by beat (``film_sample``): go(scene, beat) settled, the picture alone, the
+        scene's text brought to rest (site_probe.js, ``S.filmRest``), two frames, the window, info(), what the HTML
+        says of that beat (``S.filmBeat``) and, where lines lie over the picture, their contrast with what is drawn
+        behind them (``words``, ``words_contrast``). With ``stills``, each scene's last beat is also written as
+        ``stills/<scene id>.webp``. Returns the stills record.
+
+        What the words cost a beat, measured with the four visits side by side on four cores that other work was
+        using too. The rest: 2 ms in the page where the text stands whole (it shares the call that waits for the
+        window's two frames), and one more look, 0.1 s, where a line is part see-through on purpose or the beat's
+        own lines are not drawn. The reading, where lines lie over the picture: one photograph of the window, two
+        calls to take the letters' fill away and put it back, and the squares, 0.11 s at 1440 x 900 and 0.08 s at
+        390 x 844 on a deck of 13 beats; 0.14 to 0.17 s and 0.10 to 0.11 s on a film of 48 beats drawn by the
+        starter's engine whose every beat sets two lines with a halo over the picture, 24 of them photographed
+        twice on the desktop and 12 on the phone. Nothing where no line lies over the picture, as in seven of the
+        example film's eight beats. That film of 48 beats was checked in 42 s where it took 35 s before the words
+        were read (medians of three): 7 s more for the desktop's beats, 4 s more for the phone's. ``WORDS_S`` bounds
+        the reading for a page whose photographs are slow."""
         import base64
 
         f = self.v.film
         hook = f["hook"]
         plan = film_sample(hook["scenes"])
-        f["planned"], f["total"] = len(plan), hook["total"]
+        f["planned"], f["total"], f["rest_s"], f["words_s"], f["words_unread"] = len(plan), hook["total"], 0.0, 0.0, 0
+        restless = 0  # beats whose text was still changing after its wait (WORDS_RESTLESS)
         order = {b: i for i, b in enumerate(film_order(hook["scenes"]))}
         last = {(s["id"], s["beats"] - 1) for s in hook["scenes"] if s["beats"]}
         html = ""
@@ -3072,14 +3513,35 @@ class _Visitor:
             b.info = _film_info(got.get("info"))
             b.lines = (b.info or {}).get("lines") or []
             b.foreign = foreign_lines(b.lines, text) if text else []
+            for key in ("form", "theme"):  # the story's, as the first beat that names them says
+                if not f.get(key) and (b.info or {}).get(key):
+                    f[key] = b.info[key]
             pic = await self.film_picture(page, got)
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+            # the text brought to rest, then the two frames the window's photograph needs, in one call of the page
+            # (in the page: the wait, one look more, and 2.5 s at most for the frames)
+            wait = WORDS_REST_S if restless < WORDS_RESTLESS else 0.0
+            rest = await _bounded(page, f"window.__agySite.filmRest({json.dumps(scene)}, {k}, {round(wait * 1000)}, 2)",
+                                  None, wait + 4.0)
+            if isinstance(rest, dict):
+                restless += rest.get("settled") is False
+                ms = rest.get("ms")
+                f["rest_s"] += ms / 1000 if isinstance(ms, (int, float)) and 0 <= ms < 60_000 else 0.0
             shot = await self.shot()
             end = await _bounded(page, "window.__agySite.stepEnd(false)", None)
             w = (end or {}).get("win") or {} if isinstance(end, dict) else {}
             b.draws, b.triangles = int(w.get("maxDraws", 0)), int(w.get("maxTris", 0))
             b.html = await _bounded(page, f"window.__agySite.filmBeat({json.dumps(scene)}, {k})", None)
+            if isinstance(b.html, dict):
+                b.html["rest"] = rest if isinstance(rest, dict) else None
+                runs, win = _word_runs(b.html.pop("words", None)), b.html.pop("win", None)
+                b.words = []
+                if runs and isinstance(win, list) and len(win) == 2 and all(isinstance(x, (int, float)) and x > 0 for x in win):
+                    if f["words_s"] >= WORDS_S:  # the reading's time is used up: the beat is photographed without it
+                        b.words, f["words_unread"] = None, f["words_unread"] + 1
+                    else:
+                        tw = time.monotonic()
+                        b.words = await self.words(page, runs, (win[0], win[1]))
+                        f["words_s"] += time.monotonic() - tw
             fw = self.out / f"{self.v.name}_b{b.order:02d}.jpg"
             fw.write_bytes(shot)
             b.frame = str(fw)
@@ -3110,17 +3572,23 @@ class _Visitor:
                     except Exception as e:  # noqa: BLE001  a picture Pillow cannot read
                         skipped.append({"id": scene, "why": f"unreadable picture ({type(e).__name__})"})
             b.seconds = round(time.monotonic() - tb, 2)
-        f["beats_s"] = round(time.monotonic() - t0, 2)
-        self.log(f"film: {len(self.v.beats)} of {len(plan)} beats in {f['beats_s']:.1f} s")
+        f["beats_s"], f["rest_s"], f["words_s"] = round(time.monotonic() - t0, 2), round(f["rest_s"], 2), round(f["words_s"], 2)
+        self.log(f"story: {len(self.v.beats)} of {len(plan)} beats in {f['beats_s']:.1f} s; the text's rest "
+                 f"{f['rest_s']:.2f} s, the words over the picture {f['words_s']:.2f} s")
         return {"dir": str(folder), "made": made, "skipped": skipped} if stills else {}
 
     async def film_moves(self, page) -> None:
-        """Whether each scene moves while a beat plays, at its last beat: at(scene, beat, 0.3, 1) against
-        at(scene, beat, 1, 1) (the beat's own motion), and that against at(scene, beat, 1, 3) (ambient time), the
-        pictures read as ``film_picture`` reads them, compared by ``picture_change``. Within ``FILM_MOVES_S``."""
+        """Whether each scene moves while a beat plays: at(scene, beat, 0.3, 1) against at(scene, beat, 1, 1) (the
+        beat's own motion), and that against at(scene, beat, 1, 3) (ambient time), the pictures read as
+        ``film_picture`` reads them, compared by ``picture_change``. Within ``FILM_MOVES_S``.
+
+        Read at the scene's last beat, or, on a slide whose last beats only add words, at the last beat that changes
+        its picture (``same_picture``; its first beat where none does): a slide that ends on a line of text over a
+        picture that holds would otherwise be told that it stands still, for doing what a deck does."""
         f = self.v.film
         f["moves"] = []
         t0 = time.monotonic()
+        held = {(b.scene, b.beat) for b, _, what in same_picture(self.v) if what == "words"}
         for s in f["hook"]["scenes"]:
             if not s["beats"]:
                 continue
@@ -3128,6 +3596,8 @@ class _Visitor:
                 f["moves"].append({"scene": s["id"], "why": "no time left"})
                 continue
             last = s["beats"] - 1
+            while last > 0 and (s["id"], last) in held:
+                last -= 1
             pics = []
             for p, t in ((0.3, 1), (1, 1), (1, 3)):
                 got = await self.film_call(page, "at", [s["id"], last, p, t], "image/jpeg",
@@ -3136,7 +3606,7 @@ class _Visitor:
                 if pic is None:
                     break
                 pics.append(pic)
-            m: dict = {"scene": s["id"], "beat": f"#{s['id']}-{last + 1}"}
+            m: dict = {"scene": s["id"], "beat": f"#{s['id']}-{last + 1}", "last": last == s["beats"] - 1}
             if len(pics) == 3:
                 m["p"], m["t"] = picture_change(pics[0], pics[1]), picture_change(pics[1], pics[2])
             else:
@@ -3144,13 +3614,15 @@ class _Visitor:
             f["moves"].append(m)
 
     async def _film_where(self, page, other: str, cap: float) -> tuple[str, str]:
-        """Where info() says the film is once it is no longer ``other`` (polled for at most ``cap``): (hash, why not)."""
+        """Where info() says the story is once it is no longer ``other`` (polled for at most ``cap``): (hash, why
+        not). ``UNANSWERED`` where the page gave no answer at all in the time a read has: that is no word about where
+        the story is."""
         t0, where = time.monotonic(), ""
         while True:
-            info = _film_info(await _bounded(page, "window.__agySite.filmInfo()", None))
-            where = _where_info(info)
+            got = await _bounded(page, "window.__agySite.filmInfo()", UNANSWERED)
+            where = "" if got == UNANSWERED else _where_info(_film_info(got))
             if (where and where != other) or time.monotonic() - t0 > cap:
-                return where, "" if where else "info() gave no scene and beat"
+                return where, "" if where else UNANSWERED if got == UNANSWERED else "info() gave no scene and beat"
             await asyncio.sleep(0.1)
 
     async def film_key(self, page) -> None:
@@ -3167,31 +3639,49 @@ class _Visitor:
             await asyncio.wait_for(page.keyboard.press("ArrowRight"), 5.0)
         got, why = await self._film_where(page, frm, FILM_KEY_S)
         self.v.film["key"] = {"from": frm, "want": want, "got": got, "why": why}
+        if why == UNANSWERED:  # nothing is known of the key (film_hash says how this was found)
+            self.v.film["key"]["unread"] = UNANSWERED
 
     async def film_hash(self, ctx, canvas_layer: bool) -> None:
         """Whether the hash opens its beat: the page loaded afresh, in a page of its own, at #<scene>-<beat> of the
-        film's middle beat, and info() read once the film is ready."""
+        story's middle beat, and info() read once the story is ready.
+
+        'unread': why nothing is known of the hash, where this second load gave no story to ask: ready had not
+        resolved in the time it had, the page had no WebGL this time, or it gave no answer when asked where it was.
+        Then nothing is said of the hash but that. A deck of 13 beats and 260,000 triangles, checked while the
+        machine's four cores had other work, was ready on this load and then busy drawing for longer than a read of
+        info() waits, in three checks of four; before this was told apart the answer read "the hash does not open
+        its beat ... the story did not say which beat it showed", of a page that opens it."""
         order = film_order(self.v.film["hook"]["scenes"])
         if len(order) < 2 or self.clock.left() < WRAP_UP_S + 8.0:
             return
         s, k = order[len(order) // 2]
         want = f"#{s}-{k + 1}"
+        rec: dict = {"want": want, "got": "", "why": ""}
         page = await ctx.new_page()
         try:
             await page.add_init_script(_probe_script(False, canvas_layer=canvas_layer))
             wait = max(2.0, min(FILM_READY_S, self.clock.left() - WRAP_UP_S - 6.0))
             await page.goto(self.url.split("#")[0] + want, wait_until="load", timeout=wait * 1000)
-            await _bounded(page, f"window.__agySite.filmWait({round(wait * 1000)})", None, wait + 3.0)
-            got, why = await self._film_where(page, "", 0.0)
-            if got != want:  # a page that goes to the hash's beat after ready: a moment more
-                got, why = await self._film_where(page, got or "-", FILM_KEY_S)
-                got = got or ""
+            hook = _film_hook(await _bounded(page, f"window.__agySite.filmWait({round(wait * 1000)})", None, wait + 3.0))
+            rec["hook"] = {"ready": hook["ready"]["state"], "mode": hook["mode"]} if hook else None
+            if hook is not None and hook["ready"]["state"] == "pending":
+                rec["unread"] = f"the story was not ready {wait:.0f} s after that load"
+            elif hook is not None and hook["mode"] == "no-webgl" and self.v.film["hook"].get("mode") != "no-webgl":
+                rec["unread"] = "the page had no WebGL on that load" + (f" ({_q(hook['why'], 80)})" if hook.get("why") else "")
+            else:
+                got, why = await self._film_where(page, "", 0.0)
+                if got != want:  # a page that goes to the hash's beat after ready: a moment more
+                    got, why = await self._film_where(page, got or "-", FILM_KEY_S)
+                rec.update(got=got or "", why=why)
+                if why == UNANSWERED:
+                    rec["unread"] = UNANSWERED
         except Exception as e:  # noqa: BLE001  a page that does not load a second time: said, and the visit goes on
-            got, why = "", f"the page did not load again ({type(e).__name__})"
+            rec["why"] = f"the page did not load again ({type(e).__name__})"
         finally:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(page.close(), 5.0)
-        self.v.film["hash"] = {"want": want, "got": got, "why": why}
+        self.v.film["hash"] = rec
 
     async def film_reduced(self, page) -> None:
         """Under reduce motion, a beat reached as a viewer reaches it (advance() from the beat before the film's middle
@@ -3667,7 +4157,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     for name in ("desktop", "phone"):
         v = rep.visits.get(name)
         if v and v.film is not None and not rep.film:
-            rep.film = {**v.film["hook"], "size": name}
+            rep.film = {**v.film["hook"], "size": name, "form": v.film.get("form"), "theme": v.film.get("theme")}
         if v and v.film is not None:
             if film_sheet(v, out / f"sheet_{name}.jpg"):
                 rep.sheets[name] = str(out / f"sheet_{name}.jpg")

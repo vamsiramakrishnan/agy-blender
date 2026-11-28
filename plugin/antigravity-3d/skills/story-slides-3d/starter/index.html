@@ -1,16 +1,19 @@
 <!doctype html>
-<html lang="en">
+<!-- data-story-theme names the deck's theme (src/theme.css has the colours and type of each; src/theme.js the stage's
+     half): paper, ink, poster, halftone or glyph. The attribute has a name of its own because sites and page hosts
+     write their light or dark choice into data-theme on this same element, and would overwrite the deck's. -->
+<html lang="en" data-story-theme="paper">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Keeper: a short film</title>
-  <meta name="description" content="A lighthouse keeper, a light at sea, and what came ashore: a short film in three small sets.">
+  <title>How heavy is a cloud?</title>
+  <meta name="description" content="A short talk with one cloud in it: what a cloud is made of, what it weighs, and why it stays up.">
   <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
   <header class="strip">
-    <span class="mark">Keeper</span>
-    <!-- "Scene 2 of 5": main.js writes it as text, so it is read and checked like any other text. -->
+    <span class="mark">How heavy is a cloud?</span>
+    <!-- The count: main.js writes it as text, so it is read and checked like any other text. -->
     <span class="count" id="count"></span>
   </header>
 
@@ -20,63 +23,100 @@
     <p class="loading" id="loading" role="status"></p>
   </main>
 
-  <!-- Shown only when the film cannot play here (main.js, articleOnly): the article is then the whole page. -->
-  <p class="note" id="note" hidden>This browser cannot show the film's pictures, so here is its text.</p>
+  <!-- Shown only when the pictures cannot play here (main.js, articleOnly): the article is then the whole page. -->
+  <p class="note" id="note" hidden>This browser cannot show the pictures, so here is the talk's text.</p>
 
-  <!-- The story's text. One section per scene, in film order; data-scene is the id src/scenes/<id>.js keys on. One
-       data-beat per beat, in order, with one or two lines. Script never changes this text: the film shows it as the
-       caption (caption.js), and without WebGL the page reads as this article. A beat may carry a speaker's note
-       (aside data-notes, never in the caption) and may set its lines over the picture (data-place="over"). -->
+  <!-- The deck's text. One section per scene (a slide), in order; data-scene is the id src/scenes/<id>.js keys on,
+       data-layout says where its words lie over the picture (title, statement, left, right, number, end; caption
+       when left out). One data-beat per beat (a step), in order. A heading with class kicker is a small label above
+       the words; a p is the large words, p.lede smaller, p.big a figure, p.source the line that says where a number
+       is from; aside data-notes is the speaker's note, never on the slide. Script never changes this text, and
+       without WebGL the page reads as this article.
+       Every number names where it is from: data-src points into facts.json, which the stage reads too. -->
   <article id="story" aria-live="polite">
-    <section data-scene="title">
-      <h2>Keeper</h2>
-      <div data-beat data-place="over">
-        <p>A short film in three small sets.</p>
-        <p>Press the right arrow, or tap the picture.</p>
-        <aside data-notes>Wait for the beam to cross the card before the first click.</aside>
+    <section data-scene="cloud" data-layout="title">
+      <h1>How heavy is a cloud?</h1>
+      <div data-beat>
+        <p class="lede">A short talk with one cloud in it.</p>
+        <aside data-notes>Let the cloud drift for a moment before you speak. Ask the room for a guess, in kilograms, and take two or three.</aside>
       </div>
     </section>
 
-    <section data-scene="tower">
-      <h2>The light</h2>
+    <section data-scene="looks" data-layout="statement">
+      <h2 class="kicker">What it looks like</h2>
       <div data-beat>
-        <p>The light went round every nine seconds. It had done so for sixty years.</p>
+        <p>It looks like nothing at all.</p>
+        <aside data-notes>From underneath it is a shadow going over a house. Nobody ducks.</aside>
       </div>
       <div data-beat>
-        <p>Tonight something out there answered it.</p>
-      </div>
-    </section>
-
-    <section data-scene="room">
-      <h2>The lamp room</h2>
-      <div data-beat>
-        <p>He wrote it in the log the way he wrote everything: time, bearing, weather.</p>
-      </div>
-      <div data-beat>
-        <p>Then he did the one thing the job allowed. He kept the light turning.</p>
+        <p>Take an ordinary one: <span data-src="facts.json#/premises/side/said">a kilometre long, wide and tall</span>.</p>
+        <aside data-notes>A small fair-weather cumulus. Point at the house: it is still there, at the edge of the shadow.</aside>
       </div>
     </section>
 
-    <section data-scene="shore">
-      <h2>Morning</h2>
+    <section data-scene="drops" data-layout="statement">
+      <h2 class="kicker">What it is made of</h2>
       <div data-beat>
-        <p>By morning the answer had come ashore.</p>
+        <p>It is water. Drops <span data-src="facts.json#/premises/drop/said">a fiftieth of a millimetre</span> across.</p>
+        <aside data-notes>Not vapour: vapour is invisible. What you see is liquid water, in drops too small to fall like rain.</aside>
       </div>
       <div data-beat>
-        <p>Nobody had asked for anything. Somebody had seen the light and steered by it.</p>
+        <p><span data-src="facts.json#/premises/water/said">Half a gram</span> of them in every cubic metre.</p>
+        <aside data-notes>All the drops in a cubic metre, gathered up, make one bead the size of a pea. That is the whole premise: say it slowly.</aside>
+      </div>
+      <div data-beat>
+        <p><span data-src="facts.json#/derived/drops/said">A hundred thousand million million</span> drops in all.</p>
+        <aside data-notes>Each dot stands for some forty million million drops. There are a thousand million of those cubic metres.</aside>
       </div>
     </section>
 
-    <section data-scene="end">
-      <h2>End</h2>
+    <section data-scene="weight" data-layout="number">
+      <h2 class="kicker">What it weighs</h2>
       <div data-beat>
-        <p>Three sets, a few boxes and cylinders, two lights.</p>
-        <p>The rest is where the light falls.</p>
+        <p>Pour them together.</p>
+        <aside data-notes>Say nothing while it pours. The number is better if they have built the cube themselves first.</aside>
+      </div>
+      <div data-beat>
+        <p>A cube of water <span data-src="facts.json#/derived/cube/said">eight metres</span> on a side.</p>
+        <aside data-notes>Taller than the house. A thousand million cubic metres of cloud come to this.</aside>
+      </div>
+      <div data-beat>
+        <p class="big" data-src="facts.json#/derived/tonnes/value">500 tonnes</p>
+        <p class="source" data-src="facts.json#/derived/tonnes/from">1 km3 x 0.5 g per m3</p>
+        <aside data-notes>About a hundred elephants, or a loaded jumbo jet and a half. Compare it with the guesses from the first slide.</aside>
+      </div>
+    </section>
+
+    <section data-scene="floats" data-layout="statement">
+      <h2 class="kicker">Why it stays up</h2>
+      <div data-beat>
+        <p>So why is it up there?</p>
+        <aside data-notes>Let the question stand while the water goes back up.</aside>
+      </div>
+      <div data-beat>
+        <p>Each drop falls <span data-src="facts.json#/derived/fall/said">about a centimetre a second</span>.</p>
+        <aside data-notes>The marks on the ruler are a centimetre apart. Count one of them aloud: that is as fast as it gets.</aside>
+      </div>
+      <div data-beat>
+        <p>The air under the cloud rises <span data-src="facts.json#/derived/times/said">a hundred times</span> faster.</p>
+        <aside data-notes>A metre a second, on a warm day. The drops are falling the whole time, through air that is going up.</aside>
+      </div>
+    </section>
+
+    <!-- class="scrim": this picture is busy where the words lie (the cloud's base, the roof), so they stand on a
+         label of the theme's paper. Any scene may ask for one. -->
+    <section data-scene="up" data-layout="end" class="scrim">
+      <h2>Look up.</h2>
+      <div data-beat>
+        <p><span data-src="facts.json#/derived/tonnes/said">Five hundred tonnes</span>, held up by a breeze.</p>
+        <aside data-notes>Stop here. If there is a window, point at it.</aside>
       </div>
     </section>
   </article>
 
-  <nav class="controls" aria-label="Film">
+  <nav class="controls" aria-label="Deck">
+    <!-- Optional: shows the deck in its next theme (the key t), for a presenter without a keyboard. -->
+    <button type="button" id="theme">Theme</button>
     <button type="button" id="back">Back</button>
     <button type="button" id="auto" aria-pressed="false">Auto</button>
     <button type="button" id="next">Next</button>

@@ -1053,11 +1053,13 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "sideways scroll on a phone, download weight, other hosts, reduce motion and no-WebGL handling), what the "
         "scene costs (draw calls, triangles, texture memory) and where the contact sheets are: open them with your file "
         "viewer. Mark every number and code specimen the page shows with its source, data-src=\"file#/json/pointer\", "
-        "\"file#L10-L14\" or \"file\" (relative to sources), and it is checked against that file. A film (a page that "
-        "sets window.__story) is stepped beat by beat instead of scrolled: each beat photographed at both sizes, a tile "
-        "per beat on the sheets, the answer headed STORY CHECKED (empty or unchanged beats, lines missing from the HTML, "
-        "scenes that stand still, captions that do not fit, the arrow key and the hash), one still per scene. Writes "
-        "only its pictures, under agy3d_site_check/. Answers within 150 s; use it after every change you want to see.")
+        "\"file#L10-L14\" or \"file\" (relative to sources), and it is checked against that file. A story (a page that "
+        "sets window.__story: a deck of slides over a 3D stage, or a film) is stepped beat by beat instead of scrolled: "
+        "each beat photographed at both sizes, a tile per beat on the sheets, the answer headed STORY CHECKED (empty "
+        "beats, beats whose picture does not change (a slide may add words alone), words that are not shown or are "
+        "hard to read over the picture, text that does not fit, lines missing from the HTML, scenes that stand still, "
+        "the arrow key and the hash), one still per scene. Writes only its pictures, under agy3d_site_check/. Answers "
+        "within 150 s; use it after every change you want to see.")
     tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project, check_site) \
         if getattr(host, "script", False) \
         else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project,

@@ -578,6 +578,15 @@
     "notes": "improving an existing film"
   },
   {
+    "id": "story-slides-3d.s4",
+    "prompt": "our deck is all bullet points and nobody remembers it. make the talk as slides that are not boring: html slides over one three.js scene, one theme for everything, a visual metaphor where a number needs one",
+    "expected": [
+      "story-slides-3d"
+    ],
+    "kind": "should",
+    "notes": "the owner's words for the generalisation: slides that are not boring"
+  },
+  {
     "id": "story-slides-3d.nm",
     "prompt": "make our landing page tell the product's story as you scroll down, with the 3d model turning as each section comes in",
     "expected": [
@@ -592,6 +601,13 @@
     "expected": [],
     "kind": "near-miss",
     "notes": "a story with no picture and no browser"
+  },
+  {
+    "id": "story-slides-3d.nm.h2",
+    "prompt": "make me a ten slide powerpoint for the quarterly review with our numbers in tables and a chart on each slide",
+    "expected": [],
+    "kind": "near-miss",
+    "notes": "slides, but a PowerPoint file of tables and charts: no browser and no 3D"
   },
   {
     "id": "combo.06",
