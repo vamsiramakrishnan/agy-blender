@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "hide20",
+ "rep": 0,
+ "frames": [
+  "fefcd13ba712ee55",
+  "a6a374bdc463cd2d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 frames 4 and 7 show clean transitional views of the 3D machinery without cut-off text, whereas Site 2 frame 7 awkwardly catches an unreadable, faded-out text card."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D press, rack, and gate machinery across frames 1 to 9 to visually demonstrate how token floods are compressed into digests and anchors."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature identical 3D models, materials, lighting, and gridded ground planes from frame 1 through frame 9."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "While both share the same typography and card overlap in frame 5, Site 1 avoids the nearly invisible, half-faded card text seen in Site 2 frame 7."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Although both sites are nearly identical builds, Site 1 has cleaner scroll transitions in frames 4 and 7 without lingering, unreadable faded-out text cards."
+  }
+ }
+}

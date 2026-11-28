@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "mid20",
+ "rep": 2,
+ "frames": [
+  "fefcd13ba712ee55",
+  "6b8064cf28fbdf89"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its explanatory card present across frames 4 and 7 so every scroll stop feels complete, whereas Site 1 drops the text card completely in frames 4 and 7 leaving unbalanced compositions."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Because Site 2 keeps the contextual panels visible in frames 4 and 7 alongside the 3D press and host gates, the animation continuously pairs with the explanation rather than losing context mid-transition."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature the exact same well-crafted 3D industrial machinery, materials, lighting, and grounded grid shadows across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "While both share the same clean typography and left-aligned card hierarchy, Site 2 maintains consistent UI presence in frames 4 and 7 instead of letting the layout blink out between sections."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers the exact same strong 3D visualization and clean typographic design as Site 1, but fixes the scroll pacing so the explanatory UI cards remain consistently visible across every step of the scroll."
+  }
+ }
+}

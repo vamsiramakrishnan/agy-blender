@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "hide20",
+ "rep": 1,
+ "frames": [
+  "fefcd13ba712ee55",
+  "a6a374bdc463cd2d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "While both sites clip the text card against the 3D rack in frame 5, site 1 presents clean transitional views in frames 4 and 7, whereas site 2 shows an illegible, half-faded dark text box in frame 7."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same mechanical factory metaphor across frames 1 to 9\u2014pressing red log slabs into a digest in frame 5, indexing in frame 6, and routing across seven host gates in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature the identical stylized 3D machinery, chamfered industrial materials, grid floor, and grounded shadows across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Although both sites share the same typography and card design, site 2 leaves a muddy, unreadable ghosted card on screen in frame 7 while site 1 keeps frame 7 crisp and unobstructed."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Both sites appear to be nearly identical versions of the same well-crafted 3D interactive explainer, but site 1 wins for cleaner scroll transitions in frames 4 and 7 without the dim, unreadable card fade seen in frame 7 of site 2."
+  }
+ }
+}

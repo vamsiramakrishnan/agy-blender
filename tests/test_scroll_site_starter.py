@@ -537,6 +537,19 @@ def test_chapter_links_and_jump_to_land_on_the_chapters_rest_and_at_names_moment
         assert p.page.evaluate("location.hash") == "#how"
         p.page.evaluate("__site.jumpTo('detail')")
         p.page.wait_for_function(f"Math.abs(__site.progress() - {ids.index('detail') + REST}) < 0.01", timeout=8000)
+        # scrollAt is where on the page a story time is, for an effect of the page's own that must start with the
+        # film: setProgress goes exactly there. In the last chapter that is not its top plus the same share of its
+        # height: it runs on its height less the window. Run 6 started its last panel's lines by that sum (the
+        # library guide's earlier advice) and the card stood empty from 35 % to 64 % of the chapter.
+        y, top, height, window_h = p.page.evaluate(f"""(() => {{
+          const r = document.querySelector('[data-chapter="{ids[-1]}"]').getBoundingClientRect();
+          return [__site.scrollAt(__site.at('{ids[-1]}', 0.5)), r.top + scrollY, r.height, innerHeight]; }})()""")
+        p.page.evaluate(f"__site.setProgress(__site.at('{ids[-1]}', 0.5))")
+        assert p.page.evaluate("scrollY") == pytest.approx(y, abs=1)
+        assert y == pytest.approx(top + 0.5 * (height - window_h), abs=2) and y < top + 0.5 * height - 0.3 * window_h
+        assert p.page.evaluate("__site.scrollAt(__site.at('how', 0.25))") == pytest.approx(
+            p.page.evaluate("(() => { const r = document.querySelector('[data-chapter=\"how\"]').getBoundingClientRect(); "
+                            "return r.top + scrollY + 0.25 * r.height; })()"), abs=2)
         assert p.messages == [], p.messages
     finally:
         p.close()

@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "mid",
+ "rep": 0,
+ "frames": [
+  "fefcd13ba712ee55",
+  "326c9038cfb7c6b3"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 clears the overlay card completely during camera transitions in frames 4 and 7 to show the full 3D machine unobstructed, whereas Site 2 leaves a dark, faded, nearly empty card blocking the left machine in frame 4."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory metaphor\u2014pressing a 302,628-token slab in frame 3 into a bounded digest in frame 5, routing to an anchor rack in frame 6, and gating 7 host lanes in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the identical 3D scene with the same beveled industrial machinery, grid floor, lighting, and shadows across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 cleanly hides text cards between scroll stops in frames 4 and 7, while Site 2 displays low-contrast, barely legible faded text inside dark boxes in frames 4 and 7."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "While both sites share the same strong 3D visualization and typography, Site 1 handles scroll transitions cleanly without leaving faded, unreadable card overlays obstructing the 3D scene."
+  }
+ }
+}

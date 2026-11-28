@@ -274,32 +274,53 @@ Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame. 
 from a resize handler of your own: ScrollTrigger refreshes on resize by itself, and on a touch-only device it skips a
 resize that keeps the width and changes the height by less than a quarter, which is the address bar sliding (gsap
 3.15.1, `_onResize` in `ScrollTrigger.js`). Run 2 refreshed on every resize and undid that. Call it only after a
-layout change it cannot see, such as content your script added. The starter shows a chapter's panel only once its
-camera has arrived (`MOVE` of the chapter past its top, `src/shots.js`): a stagger that plays before then plays on a
-hidden panel, so on the starter start it there, `start: () => 'top+=' + MOVE * chapter.offsetHeight + ' top'`.
+layout change it cannot see, such as content your script added.
+
+Text a visitor reads is never tied to the scroll position, and never left part way: wherever the visitor stops, a
+line is whole or not there. Bring a panel's lines in on time, once, when the panel comes up, as the example does.
+Why: run 6 scrubbed each panel's lines over the 0.16 of the chapter that follows the camera's arrival, as this guide
+then showed, so a visitor who stopped there read a half-faded card; rebuilt so that the stretch fell on a
+photographed step, the site lost to itself in six of six blind verdicts, every one naming the faded card
+(`benchmarks/results/round8/text_timing/`). The starter brings a panel up where its camera arrives, `MOVE` of the
+way into its chapter in story time (the first panel is up from the start), and `window.__site.scrollAt(T)` is the
+place on the page of a story time: start there. Not at the chapter's top plus a share of its height: the last chapter runs on its height less the window
+(`src/chapters.js`), and run 6's last card, started by that sum, stood empty from 35 % to 64 % of its chapter and was
+not whole before 95 %, while the menu's link to it lands at 70 %.
 
 ```js
 // example: gsap-scrolltrigger
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
+import { MOVE } from './src/shots.js';
 
 gsap.registerPlugin(ScrollTrigger);
-const lenis = new Lenis(); // smoothing is off by itself under reduced motion (respectReducedMotion)
+const lenis = new Lenis({ allowNestedScroll: true }); // smoothing is off by itself under reduced motion (respectReducedMotion)
 lenis.on('scroll', ScrollTrigger.update);
 gsap.ticker.add((seconds) => lenis.raf(seconds * 1000));
 gsap.ticker.lagSmoothing(0);
 
-// Inside each chapter's panel the heading and paragraphs come in one after another as the chapter arrives, scrubbed
-// to the scroll (the starter cross-fades whole panels). The text itself is never changed: check_site reads it.
-for (const chapter of document.querySelectorAll('[data-chapter]')) {
-  gsap.from(chapter.querySelectorAll('.panel > *'), {
-    opacity: 0, y: 24, ease: 'none', stagger: 0.3,
-    scrollTrigger: { trigger: chapter, start: 'top 85%', end: 'top 25%', scrub: true },
+await import('./src/main.js'); // the starter, unchanged
+const site = window.__site;
+site.scrollWith = (y) => lenis.scrollTo(y);
+await site.ready;
+
+// The lines of each chapter's panel come in one after another when the panel comes up: in time, once, and from then
+// on they are whole wherever the visitor stops. Only in the film, and not under reduced motion. The text itself is
+// never changed: check_site reads it.
+if (site.mode === 'webgl') gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
+  document.querySelectorAll('[data-chapter]').forEach((chapter, i) => {
+    gsap.from(chapter.querySelectorAll('.panel > *'), {
+      opacity: 0, y: 16, duration: 0.6, ease: 'power2.out', stagger: 0.08,
+      // the first panel is up from the start and plays at once; the others start where their camera arrives, a pixel
+      // early so that a visitor resting exactly there has passed it
+      scrollTrigger: i ? { start: () => site.scrollAt(site.at(chapter.dataset.chapter, MOVE)) - 1, end: 'max', once: true } : null,
+    });
   });
-}
+});
 ```
-<!-- check: js (async () => { const wait = () => new Promise((r) => setTimeout(r, 1500)), kids = [...document.querySelectorAll('#how .panel > *')], seen = () => kids.map((el) => +getComputedStyle(el).opacity), top = document.getElementById('how').getBoundingClientRect().top + scrollY; scrollTo(0, top - innerHeight * 0.55); await wait(); const mid = seen(); scrollTo(0, top - innerHeight * 0.1); await wait(); const end = seen(); return kids.length >= 2 && mid[0] > mid[kids.length - 1] + 0.2 && end.every((v) => v > 0.99); })() -->
+<!-- check: picture -->
+<!-- check: js (async () => { const site = window.__site, wait = (ms) => new Promise((r) => setTimeout(r, ms)), lines = (id) => [...document.querySelectorAll('[data-chapter="' + id + '"] .panel > *')].map((el) => +getComputedStyle(el).opacity), whole = (v) => v.length >= 2 && v.every((o) => o > 0.99), ids = site.chapters().map((c) => c.id), last = ids[ids.length - 1]; await wait(1500); const first = lines(ids[0]), waiting = lines(last); site.setProgress(site.at(last, 0.36)); let oneByOne = false; for (const t0 = performance.now(); performance.now() - t0 < 1500;) { await new Promise(requestAnimationFrame); const v = lines(last); oneByOne = oneByOne || v[0] > v[v.length - 1] + 0.15; } const rests = []; for (const [id, local] of [[last, 0.36], [last, 0.7], ['how', 0.36], ['how', 0.5], ['detail', 0.4], [ids[0], 0.5]]) { site.setProgress(site.at(id, local)); await wait(1200); rests.push(lines(id)); } return whole(first) && waiting.every((o) => o < 0.01) && oneByOne && rests.every(whole); })() -->
 
 ## Lenis 1.3: smooth scrolling
 

@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "mid20",
+ "rep": 1,
+ "frames": [
+  "fefcd13ba712ee55",
+  "6b8064cf28fbdf89"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its explanatory text cards and 3D labels synced across all scroll positions (including frames 4 and 7), whereas Site 1 drops the text card completely in frames 4 and 7, leaving awkward unannotated transitional states."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "While both sites share the same 3D factory metaphor across frames 1 to 9, Site 2 maintains continuous pairing between the text explanation and the 3D machine states in frames 4 and 7 so the visualization never loses context."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites render the exact same 3D models, materials, lighting, and gridded floor across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Both sites use the same clean typography and left-hand card layout, though Site 2 avoids the blank left-hand layout gaps seen in Site 1's frames 4 and 7 (despite minor overlapping in frame 4)."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a more cohesive scroll experience by keeping the explanatory UI cards consistently visible alongside the 3D visualization in every frame rather than dropping out mid-scroll."
+  }
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "built",
+ "second": "mid20",
+ "rep": 0,
+ "frames": [
+  "fefcd13ba712ee55",
+  "6b8064cf28fbdf89"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its explanatory UI card anchored in frames 4 and 7 alongside the 3D scene, whereas Site 1 drops the text card completely in frames 4 and 7 leaving awkward, unlabeled transition gaps."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D mechanical press, anchor rack, and 7-lane gate assembly across frames 1 to 9 to clearly visualize token compression and harness routing."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature identical, well-crafted 3D industrial machinery with beveled edges, matte metallic materials, and grounded contact shadows on the dark grid floor across frames 1 through 9."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "While sharing the same clean typography and left-docked card layout, Site 2 maintains consistent UI card visibility in frames 4 and 7 instead of letting the layout vanish mid-section like Site 1."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers the exact same strong 3D mechanical metaphor and clean technical typography as Site 1 while keeping the explanatory text cards consistently composed during scroll transitions in frames 4 and 7."
+  }
+ }
+}
