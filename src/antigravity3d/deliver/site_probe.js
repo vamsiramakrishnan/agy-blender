@@ -636,6 +636,222 @@
     return { why: 'the page drew nothing after setProgress(' + T + ')' };
   };
 
+  // ---- a film (site_check.py, film mode): a page with no scroll, stepped beat by beat through window.__story (the
+  // story-film contract: ready, mode, title, treatment, scenes, go, play, at, advance, back, setAuto, info). The hook
+  // is the page's own code, as window.__site is: it may lack members, throw, never resolve or return anything, so
+  // every call is bounded in time and everything it returns is cut and checked here and again in site_check.py.
+  const FILM_MEMBERS = ['ready', 'mode', 'title', 'treatment', 'scenes', 'go', 'play', 'at', 'advance', 'back', 'setAuto', 'info'];
+  const FILM_CALLS = ['go', 'play', 'at', 'advance', 'back', 'setAuto', 'info'];
+  const FILM_SCENES = 64, FILM_BEATS = 200, FILM_LINES = 8, LINE_CHARS = 2000;
+  const say = (e) => String((e && e.message) || e).slice(0, 160);
+  // When ready resolved, on the real clock (performance.now counts from the navigation's start): watched from the
+  // first frame on (tick), so a promise that resolved before the check asked is still timed when it resolved.
+  S.filmReady = { of: null, state: 'none', at: null, why: '', promise: null };
+  const watchFilm = () => {
+    let f;
+    try { f = window.__story; } catch (e) { return; }
+    if (!f || S.filmReady.of === f) return;
+    const r = { of: f, state: 'missing', at: null, why: '', promise: null };
+    S.filmReady = r;
+    try {
+      const ready = f.ready;
+      if (ready && typeof ready.then === 'function') {
+        r.state = 'pending';
+        r.promise = Promise.resolve(ready).then(() => { r.state = 'resolved'; r.at = pnow(); },
+                                                (e) => { r.state = 'rejected'; r.at = pnow(); r.why = say(e); });
+      }
+    } catch (e) { r.why = say(e); }
+  };
+  S.watchFilm = watchFilm;
+  const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null);
+  S.filmHook = () => {
+    watchFilm();
+    let f;
+    try { f = window.__story; } catch (e) { return { hook: false }; }
+    if (!f || (typeof f !== 'object' && typeof f !== 'function')) return { hook: false };
+    const missing = [];
+    for (const k of FILM_MEMBERS) {
+      try {
+        const v = f[k];
+        const ok = FILM_CALLS.includes(k) ? typeof v === 'function'
+          : k === 'ready' ? !!(v && typeof v.then === 'function')
+          : k === 'scenes' ? !!(v && typeof v.length === 'number') : typeof v === 'string';
+        if (!ok) missing.push(k);
+      } catch (e) { missing.push(k); }
+    }
+    const scenes = [];
+    let more = false;
+    try {
+      const list = f.scenes;
+      const n = list && typeof list.length === 'number' ? Math.min(Number(list.length) || 0, FILM_SCENES + 1) : 0;
+      for (let i = 0; i < n; i++) {
+        if (scenes.length >= FILM_SCENES) { more = true; break; }
+        try {
+          const s = list[i], id = s && s.id, beats = s && s.beats;
+          if ((typeof id !== 'string' && typeof id !== 'number') || !Number.isInteger(beats) || beats < 0 || beats > FILM_BEATS) continue;
+          scenes.push({ id: String(id).slice(0, NAME_CHARS), title: str(s.title, 200), beats });
+        } catch (e) { /* one bad entry: the others still count */ }
+      }
+    } catch (e) {}
+    let mode = null, why = null, title = null, treatment = null;
+    try { mode = str(f.mode, 40); why = str(f.why, 200); title = str(f.title, 200); treatment = str(f.treatment, 80); } catch (e) {}
+    const r = S.filmReady;
+    return { hook: true, missing, scenes, more, mode, why, title, treatment,
+             ready: { state: r.state, at: r.at, why: r.why } };
+  };
+  // the hook as it is, after waiting at most ms for ready
+  S.filmWait = async (ms) => {
+    watchFilm();
+    const r = S.filmReady;
+    if (r.state === 'pending' && r.promise) await late(r.promise, ms);
+    return S.filmHook();
+  };
+  const cleanInfo = (i) => {
+    if (!i || typeof i !== 'object') return null;
+    try {
+      const lines = [];
+      if (i.lines && typeof i.lines.length === 'number') {
+        for (let k = 0; k < Math.min(i.lines.length, FILM_LINES); k++) if (typeof i.lines[k] === 'string') lines.push(i.lines[k].slice(0, LINE_CHARS));
+      }
+      return { scene: typeof i.scene === 'string' || typeof i.scene === 'number' ? String(i.scene).slice(0, NAME_CHARS) : null,
+               beat: Number.isInteger(i.beat) ? i.beat : null, beats: Number.isInteger(i.beats) ? i.beats : null,
+               title: str(i.title, 200), lines, linesGiven: !!(i.lines && typeof i.lines.length === 'number'),
+               playing: i.playing === true, cut: str(i.cut, 40), auto: i.auto === true,
+               place: str(i.place, 20), notes: str(i.notes, 400) };
+    } catch (e) { return null; }
+  };
+  S.filmInfo = () => {
+    try { const f = window.__story; return f && typeof f.info === 'function' ? cleanInfo(f.info()) : null; } catch (e) { return null; }
+  };
+  // The picture as the hook left it, read in the task its promise resolved in: a canvas without preserveDrawingBuffer
+  // is readable only there, and a page whose loop runs on (ambient time) has moved on by its next frame. A buffer
+  // already handed to the screen reads as one flat black; then null, and site_check.py photographs the canvas.
+  const freshCanvas = (type) => {
+    let best = null;
+    for (const c of S.canvases) {
+      const r = c.getBoundingClientRect();
+      const a = Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+      if (a > 64 && c.width > 0 && c.height > 0 && (!best || a > best.a)) best = { c, a };
+    }
+    if (!best) return null;
+    try {
+      const probe = document.createElement('canvas'); probe.width = 16; probe.height = 16;
+      const g = probe.getContext('2d'); g.drawImage(best.c, 0, 0, 16, 16);
+      const px = g.getImageData(0, 0, 16, 16).data;
+      let flat = true;
+      for (let k = 0; k < px.length; k += 4) if (px[k] || px[k + 1] || px[k + 2]) { flat = false; break; }
+      if (flat) return null;
+      return best.c.toDataURL(type || 'image/jpeg', 0.8);
+    } catch (e) { return null; }
+  };
+  // One call of the hook: the frame counts start afresh (S.mark), and the answer is {ok, info, picture, ms} or
+  // {why, ms}: 'late' when it did not resolve within ms, else what it threw or rejected with.
+  S.filmCall = async (method, args, ms, type) => {
+    let f;
+    try { f = window.__story; } catch (e) { f = null; }
+    if (!f || typeof f[method] !== 'function') return { why: 'missing', ms: 0 };
+    S.mark();
+    const t0 = pnow();
+    let r;
+    try { r = await late(Promise.resolve(f[method](...(args || []))), ms); }
+    catch (e) { return { why: 'rejected: ' + say(e), ms: pnow() - t0 }; }
+    if (r && r.__late) return { why: 'late', ms: pnow() - t0 };
+    // type 'both': a PNG beside the JPEG, from the same drawing buffer (a scene's still, site_check.py)
+    const picture = type ? freshCanvas(type === 'both' ? 'image/jpeg' : type) : null;
+    const png = type === 'both' && picture ? freshCanvas('image/png') : null;
+    return { ok: true, info: cleanInfo(r) || S.filmInfo(), picture, png, ms: pnow() - t0 };
+  };
+  const rendered = (el) => {
+    if (!el.getClientRects().length) return false;
+    const cs = getComputedStyle(el);
+    return cs.visibility === 'visible' && cs.display !== 'none' && chainOpacity(el) >= TEXT_ALPHA;
+  };
+  const beatElement = (id, beat) => {
+    const sec = [...document.querySelectorAll('section[data-scene]')].find((s) => s.getAttribute('data-scene') === String(id));
+    if (!sec) return { sec: null, el: null };
+    return { sec, el: sec.querySelectorAll('[data-beat]')[beat] || null };
+  };
+  // The lines of a beat in its HTML: its text without a speaker's note (<aside data-notes>, never a line).
+  const lineNodes = (el) => {
+    const out = [];
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let t = w.nextNode(); t; t = w.nextNode()) {
+      if (!t.data.trim() || !t.parentElement || t.parentElement.closest('aside[data-notes],script,style')) continue;
+      out.push(t);
+    }
+    return out;
+  };
+  // What the HTML says of the beat the film shows, and whether its lines fit where they are shown: every visible
+  // line box inside the window and inside each ancestor that clips (overflow other than visible), none of those
+  // scrolling over its height, and a headline over the picture (data-place="over") inside the picture's box.
+  S.filmBeat = (id, beat) => {
+    try {
+      opacityOf.clear();
+      const { sec, el } = beatElement(id, beat);
+      if (!el) return { section: !!sec, found: false };
+      const nodes = lineNodes(el);
+      const over = el.getAttribute('data-place') === 'over';
+      const out = { section: true, found: true, silent: el.hasAttribute('data-silent'), over,
+                    text: nodes.map((t) => t.data).join(' ').replace(/\s+/g, ' ').trim().slice(0, LINE_CHARS),
+                    shown: false, boxes: 0, outside: 0, scrolls: null };
+      const shownNodes = nodes.filter((t) => rendered(t.parentElement));
+      if (!shownNodes.length) return out;
+      out.shown = true;
+      let area = { l: 0, t: 0, r: innerWidth, b: innerHeight };
+      const clip = (b) => { area = { l: Math.max(area.l, b.left), t: Math.max(area.t, b.top), r: Math.min(area.r, b.right), b: Math.min(area.b, b.bottom) }; };
+      const boxOf = (e) => e.getBoundingClientRect();
+      // up the chain of containing blocks only: a fixed element is clipped by nothing above it, an absolute one only
+      // by a positioned ancestor, and the overflow of <body> and <html> belongs to the window (first test film: its
+      // body, overflow hidden and 20 px tall above a fixed caption area, would have cut every line)
+      const body = document.body, root = document.documentElement;
+      for (let e = shownNodes[0].parentElement; e && e !== body && e !== root;) {
+        const cs = getComputedStyle(e);
+        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+          clip(boxOf(e));
+          if (!out.scrolls && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)) {
+            out.scrolls = { sel: sel(e), height: e.scrollHeight, box: e.clientHeight };
+          }
+        }
+        if (cs.position === 'fixed') break;
+        let next = e.parentElement;
+        if (cs.position === 'absolute') while (next && next !== body && getComputedStyle(next).position === 'static') next = next.parentElement;
+        e = next;
+      }
+      if (over) {
+        const pic = document.getElementById('picture') || refCanvas();
+        if (pic) clip(boxOf(pic));
+      }
+      const range = document.createRange();
+      for (const t of shownNodes) {
+        range.selectNodeContents(t);
+        for (const b of range.getClientRects()) {
+          if (b.width < 1 || b.height < 1) continue;
+          out.boxes++;
+          if (b.left < area.l - 1 || b.right > area.r + 1 || b.top < area.t - 1 || b.bottom > area.b + 1) out.outside++;
+        }
+      }
+      return out;
+    } catch (e) { return { found: false, why: say(e) }; }
+  };
+  // The story as the page without WebGL shows it: how many beats have lines in the HTML, and how many of those are on
+  // the page as text a reader can see (rendered, at half opacity or more; below the fold counts, the article scrolls).
+  S.filmStory = () => {
+    const hook = S.filmHook();
+    let withText = 0, shown = 0, chars = 0;
+    try {
+      opacityOf.clear();
+      for (const el of [...document.querySelectorAll('section[data-scene] [data-beat]')].slice(0, FILM_SCENES * FILM_BEATS)) {
+        const nodes = lineNodes(el);
+        if (!nodes.length) continue;
+        withText++;
+        const seen = nodes.filter((t) => rendered(t.parentElement));
+        if (seen.length === nodes.length) shown++;
+        chars += seen.reduce((s, t) => s + t.data.replace(/\s+/g, '').length, 0);
+      }
+    } catch (e) {}
+    return { hook: hook.hook, mode: hook.mode || null, why: hook.why || null, withText, shown, chars };
+  };
+
   let hider = null;
   // After a step's frame: the frame counts, where the page is, and (hide) the WebGL canvas alone on screen, two frames on.
   S.stepEnd = (hide) => new Promise((done) => {
@@ -693,6 +909,7 @@
     if (c.draws > 0) S.lastDrawn = c;  // the latest frame that drew: what is on screen now
     S.cur = { draws: 0, tris: 0 };
     for (let i = waiting.length - 1; i >= 0; i--) if (waiting[i].at <= S.frames) waiting.splice(i, 1)[0].done(S.frames);
+    watchFilm();
     raf(tick);
   };
   raf(tick);

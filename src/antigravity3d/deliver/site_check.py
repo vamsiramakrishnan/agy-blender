@@ -45,6 +45,12 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
 
+A film (a page with no scroll that sets ``window.__story``, the story-film contract) is stepped beat by beat instead
+(``_Visitor.beats``): every beat shown settled with ``go(scene, beat)`` and photographed at both sizes, its picture
+alone and its window; the answer, headed STORY CHECKED, names a hook call that hangs or rejects, an empty picture, a
+beat without a line or with a line its HTML does not hold, a beat that changes nothing, a scene that stands still, a
+caption that does not fit, the arrow key and the hash (``film_findings``), and writes one still per scene.
+
 Everything is bounded: the whole check answers within ``ANSWER_S`` (the host ends a tool call at 180 s), with what it
 has when time runs out, and says which parts are missing.
 """
@@ -65,6 +71,7 @@ import textwrap
 import threading
 import time
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -318,6 +325,40 @@ OCCLUSION_OFF_HERE = "off: a software renderer"
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
+# ---- a film (film mode): a page with no scroll that the story-film contract steps beat by beat through window.__story
+#: Beats photographed per size at most; a longer film is sampled: every scene's last beat (its still and the reading
+#: of whether it moves are taken there), then an even spread of the others. The talk deck the owner showed has 13
+#: scenes and 43 beats, and is seen whole. A beat costs a settled go(), two frames, two pictures and two short reads:
+#: 0.4 s on the test film of tests/test_site_check.py (5 beats in 2 s at each size, the two sizes at once), more on a
+#: heavy page drawn in software; 48 beats at 1.5 s are 72 s, which with the wait for ready (FILM_READY_S) still leaves
+#: the answer inside ANSWER_S. The clock bounds it in any case.
+FILM_BEATS_MAX = 48
+#: one call of the hook (go, at, advance) may take this long: a settled go() draws one frame, and on software WebGL a
+#: heavy frame takes 0.5 to 2 s (site_probe.js, "The page's clock"); the same bound as one still (STILL_WAIT_S)
+FILM_CALL_S = 8.0
+#: the wait for window.__story.ready. Before it resolves the film draws every scene at the end of each beat and each cut
+#: at its middle (the contract's warm-up): the deck's 43 beats and 12 cuts at 0.5 s a frame are about 28 s.
+FILM_READY_S = 30.0
+#: ... and without WebGL, where the film has nothing to warm up and says so at once
+FILM_READY_NOGL_S = 3.0
+#: Two pictures of the film are "the same" when less than this share of the pixels differs by more than 8 % of full
+#: scale in any channel (``picture_change``, at full size: a small light that comes on is a few pixels). A settled beat
+#: is drawn the same every time (the contract), so a beat shown twice measures 0, as the test films do; 0.05 % is a
+#: patch of 25 x 25 px at 1440 x 900 and of 13 x 13 px at 390 x 844.
+FILM_SAME = 0.0005
+#: A line longer than this many characters is a paragraph, which the viewer reads instead of looking at the picture
+#: (the contract: "a line longer than about 140 characters"; the example film's longest line has 71).
+FILM_LINE_CHARS = 140
+#: the reading of whether each scene moves (``_Visitor.film_moves``: three at() calls at its last beat) takes at most
+#: this long in all, on the desktop only (motion does not depend on the size)
+FILM_MOVES_S = 20.0
+#: how long a key press, or a page opened at a hash, is given to show its beat (polled; a cut may be running)
+FILM_KEY_S = 2.0
+#: a tile's label on the contact sheet: the scene, the beat and its first line cut to this many characters
+FILM_LABEL_CHARS = {"desktop": 44, "phone": 18}
+#: the contract's members of window.__story, in its order
+FILM_MEMBERS = ("ready", "mode", "title", "treatment", "scenes", "go", "play", "at", "advance", "back", "setAuto", "info")
+
 _HERE = Path(__file__).resolve().parent
 _log = logging.getLogger(__name__)
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -399,6 +440,30 @@ class Step:
 
 
 @dataclass
+class Beat:
+    """One beat of a film as a visit photographed it (``_Visitor.beats``)."""
+    scene: str
+    beat: int               # index in its scene, from 0 (the hash counts from 1: #<scene>-<beat + 1>)
+    order: int              # place in the whole film, from 0
+    first: bool = False     # the scene's first beat
+    last: bool = False      # the scene's last beat
+    frame: str = ""         # the window
+    canvas_frame: str = ""  # the picture alone
+    content: float | None = None   # share of the picture showing something other than its commonest colour
+    change: float | None = None    # share of the picture that differs from the beat before in its scene; None: none
+    lines: list[str] = field(default_factory=list)  # info().lines
+    foreign: list[str] = field(default_factory=list)  # of those, the lines the page's HTML does not hold
+    info: dict | None = None       # info() after go(), as checked
+    # the beat's element in the HTML (site_probe.js, ``S.filmBeat``): found, silent, over, text, shown, boxes,
+    # outside, scrolls; None: not read
+    html: dict | None = None
+    call: str = ""          # why go() failed ('late' or 'rejected: ...'); '' it answered
+    draws: int = 0
+    triangles: int = 0
+    seconds: float = 0.0
+
+
+@dataclass
 class Visit:
     name: str
     load_s: float | None = None
@@ -432,6 +497,11 @@ class Visit:
     # what one wheel notch from the top of the page changed (``_Visitor.first_notch``): {px, motion, window, canvas,
     # text}; None: not measured (not the desktop visit, a page shorter than two notches, or no time)
     first_notch: dict | None = None
+    # a film (window.__story): what the hook gave (``_film_hook``) and what the visit read through it: 'planned' (beats
+    # to photograph), 'total', 'beats_s', 'calls' (hook calls that failed: {call, method, why}), 'moves', 'key',
+    # 'hash', 'reduced', 'story'; None: the page has no window.__story
+    film: dict | None = None
+    beats: list[Beat] = field(default_factory=list)
 
 
 @dataclass
@@ -451,10 +521,17 @@ class SiteReport:
     stills: dict = field(default_factory=dict)
     # the test of the browser's screenshots (``camera``): 'true', 'layer', 'faulty' or '' (not known)
     camera: str = ""
+    # a film (window.__story at desktop or phone size): the hook as the first of those visits read it; {} a site
+    film: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ verdicts
 
     def broken(self) -> list[str]:
+        if self.film and not self.error:
+            return self.film_lines()[0]
+        return self._broken()
+
+    def _broken(self) -> list[str]:
         out: list[str] = []
         d = self.visits.get("desktop")
         if self.error:
@@ -488,6 +565,8 @@ class SiteReport:
         return out
 
     def noticed(self) -> list[str]:
+        if self.film and not self.error:
+            return self.film_lines()[1]
         out: list[str] = []
         for name in ("desktop", "phone"):
             v = self.visits.get(name)
@@ -528,13 +607,10 @@ class SiteReport:
                 worst = max(s.sideways_px for s in wide)
                 out.append(f"Phone ({SIZES['phone']['viewport']['width']} px): the page scrolls sideways by up to {worst} px"
                            + (f"; widest: {', '.join(p.overflow[:3])}" if p.overflow else "") + ".")
-        total = self.total_bytes()
-        if total and total / LINK_BPS > SLOW_WAIT_S:
-            out.append(f"The page downloads {_mb(total)}: about {total / LINK_BPS:.0f} s on a 10 Mbit/s connection "
-                       f"before everything has arrived.")
-        hosts = self.other_hosts()
-        if hosts:
-            out.append(f"It asks {len(hosts)} other host{_s(hosts)} ({', '.join(sorted(hosts))}): " + self._other_host_note() + ".")
+        if weight := self.weight_line():
+            out.append(weight)
+        if hosts := self.hosts_line():
+            out.append(hosts)
         r = self.reduced_line()
         if r and not r[1]:
             out.append(r[0])
@@ -554,6 +630,21 @@ class SiteReport:
                     out[i] = line[:-len(FADED_FIX)]
                 told = True
         return out
+
+    def weight_line(self) -> str:
+        """The download weight when it passes ``SLOW_WAIT_S`` on a 10 Mbit/s link, else ''."""
+        total = self.total_bytes()
+        if total and total / LINK_BPS > SLOW_WAIT_S:
+            return (f"The page downloads {_mb(total)}: about {total / LINK_BPS:.0f} s on a 10 Mbit/s connection "
+                    f"before everything has arrived.")
+        return ""
+
+    def hosts_line(self) -> str:
+        """The other hosts the page asks, else ''."""
+        hosts = self.other_hosts()
+        if hosts:
+            return f"It asks {len(hosts)} other host{_s(hosts)} ({', '.join(sorted(hosts))}): " + self._other_host_note() + "."
+        return ""
 
     def faded_lines(self, v: Visit) -> list[str]:
         """One line per group (chapter, section or the page) whose text is faded or missing in a card that is up at
@@ -755,7 +846,7 @@ class SiteReport:
         d = self.visits.get("desktop")
         return sum(r["bytes"] for r in d.requests.values()) if d else 0
 
-    def bytes_line(self) -> str:
+    def bytes_line(self, what: str = "whole scroll") -> str:
         d = self.visits.get("desktop")
         if not d or not d.requests:
             return ""
@@ -765,7 +856,7 @@ class SiteReport:
         kinds = ", ".join(f"{k} {_mb(b)}" for k, b in sorted(by.items(), key=lambda kv: -kv[1]) if b)
         top = sorted(d.requests.items(), key=lambda kv: -kv[1]["bytes"])[:5]
         tops = ", ".join(f"{_short(u, d)} {_mb(r['bytes'])}" for u, r in top)
-        return (f"Downloaded (desktop, whole scroll): {_mb(self.total_bytes())} in {len(d.requests)} file{_s(d.requests)}: {kinds}. "
+        return (f"Downloaded (desktop, {what}): {_mb(self.total_bytes())} in {len(d.requests)} file{_s(d.requests)}: {kinds}. "
                 f"Largest: {tops}.")
 
     def scene_line(self) -> list[str]:
@@ -781,9 +872,15 @@ class SiteReport:
         md = max((s.draws for s in steps), default=0)
         mt = max((s.triangles for s in steps), default=0)
         at = max(steps, key=lambda s: s.triangles) if steps else None
+        return self._cost_lines(d, f"Scene (desktop, the largest over the steps): {md:,} draw call{_s(md)} and {mt:,} "
+                                   f"triangle{_s(mt)} in one frame" + (f" (most triangles at {at.share:.0%})" if at and mt else ""),
+                                "top of the page")
+
+    def _cost_lines(self, d: Visit, head: str, where: str) -> list[str]:
+        """``head`` (the draw calls and triangles), the textures on the graphics card, and what the page does while
+        nothing is touched at ``where``."""
         m = d.memory or {}
-        lines = [f"Scene (desktop, the largest over the steps): {md:,} draw call{_s(md)} and {mt:,} triangle{_s(mt)} in one frame"
-                 + (f" (most triangles at {at.share:.0%})" if at and mt else "")
+        lines = [head
                  + f"; textures {_mb(m.get('texture_bytes', 0))} on the graphics card in {m.get('textures', 0)} textures"
                  + (f" ({_mb(m.get('texture_bytes', 0) - m.get('uploaded_bytes', 0))} of it render targets)"
                     if m.get('texture_bytes', 0) - m.get('uploaded_bytes', 0) > 0 else "")
@@ -794,7 +891,7 @@ class SiteReport:
             if idle["frames"] == 0:
                 lines.append("While nothing moves: the page ran no animation frames.")
             else:
-                lines.append(f"While nothing moves (top of the page, {idle['seconds']:.1f} s, no input): it drew in "
+                lines.append(f"While nothing moves ({where}, {idle['seconds']:.1f} s, no input): it drew in "
                              f"{idle['drawn']} of {idle['frames']} frames, and the picture "
                              + ("changed" if idle["changed"] else "stayed the same")
                              + (" (it keeps drawing an unchanging picture: that is battery and fan spent on nothing; "
@@ -891,6 +988,8 @@ class SiteReport:
             # has no Playwright, and the answer there read "SITE CHECKED in 0 s: 1 thing broken".
             return (f"NOT CHECKED: {self.error} Nothing of the site was opened, so nothing is known about it; the "
                     "check needs a Chromium that Playwright can start.")
+        if self.film and not self.error:
+            return self.film_text()
         broken, noticed = self.broken(), self.noticed()
         head = (f"SITE CHECKED in {self.seconds:.0f} s: "
                 + (f"{len(broken)} thing{_s(broken)} broken" if broken else "nothing broken")
@@ -990,6 +1089,255 @@ class SiteReport:
                 + (f"; {_names(blank, 3)} show{'s' if len(blank) == 1 else ''} nothing but the background" if blank else "")
                 + notmade + ".")
 
+    # ------------------------------------------------------------------ a film
+
+    def film_lines(self) -> tuple[list[str], list[str]]:
+        """(broken, a viewer would notice) for a film: the page's own faults as a site's (errors, failed requests,
+        facts), then each finding of ``film_findings`` in its words, in the order found."""
+        broken = self._broken()
+        noticed: list[str] = []
+        for f in film_findings(self):
+            line = self._film_sentence(f)
+            (broken if f["broken"] else noticed).append(line)
+        if weight := self.weight_line():
+            noticed.append(weight)
+        for r in (self.film_reduced_line(), self.film_nowebgl_line()):
+            if r and not r[1]:
+                noticed.append(r[0])
+        return broken, noticed
+
+    def _film_sentence(self, f: dict) -> str:
+        """One finding of ``film_findings`` as the answer says it: who, what, where, the number, and what to do."""
+        k, size = f["kind"], f.get("size", "").capitalize()
+        rel = lambda p: _rel(p, self.out_dir)  # noqa: E731
+        if k == "missing":
+            return (f"window.__story lacks {_and(f['members'])}: the check steps the film through that hook (its members "
+                    f"are {', '.join(FILM_MEMBERS)}), and what it cannot call goes unchecked. Give the hook every member.")
+        if k == "ready":
+            if f["state"] == "rejected":
+                return (f"window.__story.ready rejected ({_q(f['why'], 100)}): the film never said it was ready. Its beats "
+                        "were photographed all the same.")
+            return (f"window.__story.ready did not resolve within {FILM_READY_S:.0f} s of the page loading: resolve it "
+                    "once every scene has been drawn at each of its beats. Its beats were photographed all the same.")
+        if k == "no_scenes":
+            return ("window.__story.scenes names no scene with beats ({ id, title, beats } with beats a count): there was "
+                    "nothing to photograph.")
+        if k == "call":
+            what = (f"did not answer within {FILM_CALL_S:.0f} s" if f["why"] == "late"
+                    else f"rejected it ({_q(f['why'].removeprefix('rejected: '), 100)})")
+            return (f"window.__story.{f['call']} {what} ({_and(f['sizes'])}): {f['lost']}. A call of the hook resolves "
+                    "with info() once its frame is drawn, and rejects only for a scene or beat that does not exist.")
+        if k == "empty":
+            return (f"{size}: the picture shows nothing at {_beat_names(f['beats'])}: under {EMPTY_CONTENT:.0%} of it "
+                    f"differs from its commonest colour ({', '.join(_share(b.content) for b in f['beats'])}). A camera "
+                    f"that looks away from its set, or a set with no light on it, does this. Look at "
+                    f"{rel(f['beats'][0].canvas_frame or f['beats'][0].frame)}.")
+        if k == "no_line":
+            b = f["beat"]
+            where = (" and its <div data-beat> is not marked data-silent" if (b.html or {}).get("found")
+                     else f" and the HTML has no <div data-beat> for it in <section data-scene=\"{b.scene}\">")
+            return (f"Beat {_beat_name(b)} has no line: info().lines is empty there{where}. Give it a <p> in the HTML, "
+                    "or mark the div data-silent where the beat is meant to be silent.")
+        if k == "foreign":
+            b = f["beat"]
+            return (f"Beat {_beat_name(b)} shows a line the page's HTML does not hold: {_q(f['line'], 100)} "
+                    "(info().lines). The story's text is the HTML, which a browser without WebGL shows and this check "
+                    "compares: put the line in that beat's <div data-beat>, or show the one that is there.")
+        if k == "hosts":
+            return self.hosts_line()
+        if k == "same":
+            b, prev = f["beat"], f["prev"]
+            return (f"{size}: beat {_beat_name(b)} shows the same picture as {_beat_name(prev)} before it "
+                    f"({_share(b.change)} of the picture differs): a beat must change something the viewer can see (a "
+                    f"camera move, an object, the light). Look at {rel(prev.frame)} and {rel(b.frame)}.")
+        if k == "still":
+            m = f["move"]
+            return (f"Scene {_q(m['scene'], 60)} stands still: at its last beat ({m['beat']}) the picture at progress "
+                    f"0.3 and at 1 is the same, and so is the picture at ambient time 1 s and 3 s ({_share(m['p'])} and "
+                    f"{_share(m['t'])} of it differs). Give each beat one slow camera move or one event, and the scene a "
+                    "little ambient life (a flicker, rain, a turning light).")
+        if k == "caption":
+            b, h = f["beat"], f["beat"].html
+            if h.get("scrolls"):
+                how = (f"{h['scrolls']['sel']} scrolls (its content is {h['scrolls']['height']} px tall in a box of "
+                       f"{h['scrolls']['box']} px)")
+            else:
+                how = (f"{h['outside']} of its {h['boxes']} line boxes lie outside "
+                       + ("the picture or the window" if h.get("over") else "the window or the box that holds them"))
+            return (f"{size}: the {'headline' if h.get('over') else 'caption'} of beat {_beat_name(b)} does not fit: "
+                    f"{how}. Shorten the line, or give it more room at this size. Look at {rel(b.frame)}.")
+        if k == "long":
+            b = f["beat"]
+            return (f"Beat {_beat_name(b)}: a line of {len(f['line'])} characters ({_q(f['line'], 60)}): over "
+                    f"{FILM_LINE_CHARS} a line is a paragraph, which the viewer reads instead of looking at the picture. "
+                    "Shorten it or split it over two beats.")
+        if k == "tone":
+            return (f"{size}: the picture is nearly one tone at {_beat_names(f['beats'])} ("
+                    + ", ".join(_share(b.content) for b in f["beats"]) + " of it shows something, against "
+                    + ", ".join(_share(x) for x in f["other_content"]) + f" on the {f['other']}): the framing at this size "
+                    "has lost the subject. Frame it for this shape of picture (kit.fit takes a field of view for portrait "
+                    f"and one for landscape). Look at {rel(f['beats'][0].frame)}.")
+        if k == "key":
+            got = f["got"]
+            went = ("stayed there" if got == f["from"] else f"went to {got}") if got else f"did not say where it was ({f['why']})"
+            return (f"The right arrow key does not advance: pressed at {f['from']}, the film {went} (the next beat is "
+                    f"{f['want']}). Listen for ArrowRight on window and call advance(), as the contract's keys say.")
+        if k == "hash":
+            got = f["got"]
+            showed = f"showed {got}" if got else f"did not say which beat it showed ({f['why']})"
+            return (f"The hash does not open its beat: opened at {f['want']}, the film {showed} once ready. Read "
+                    "location.hash once the film is ready, and on hashchange, and go to that beat.")
+        raise ValueError(k)
+
+    def film_reduced_line(self) -> tuple[str, bool] | None:
+        """(the line, whether the film handles it): a beat reached under reduce motion is shown finished at once."""
+        r = self.visits.get("reduced")
+        if not r:
+            return None
+        if not r.loaded:
+            return (f"With reduce motion set: the page did not load ({r.load_error}).", False)
+        got = (r.film or {}).get("reduced") or {}
+        if got.get("why"):
+            return (f"With reduce motion set: no beat was read ({got['why']}).", False)
+        if got.get("change") is None:
+            return None
+        how = []
+        if r.probe and r.probe.get("reducedMotionQueried"):
+            how.append("asks matchMedia")
+        if r.probe and r.probe.get("reducedMotionCss"):
+            how.append("has a CSS rule")
+        asks = f"the page {' and '.join(how)}" if how else "the page never asks for it (no matchMedia query, no CSS rule)"
+        same = got["change"] < FILM_SAME
+        if same:
+            return (f"With reduce motion set {asks}; beat {got['beat']}, reached with advance(), is shown finished at once: "
+                    f"two pictures of the window a second apart are the same ({_share(got['change'])} of it differs), "
+                    f"caption included. Picture: {_rel(r.frame, self.out_dir)}.", True)
+        return (f"With reduce motion set {asks}, and beat {got['beat']}, reached with advance(), still changes a second "
+                f"after it began ({_share(got['change'])} of the window differs): a viewer who asked for less motion "
+                "gets it all. Under the setting show a beat finished at once, its caption whole and ambient time "
+                f"stopped. Picture: {_rel(r.frame, self.out_dir)}.", False)
+
+    def film_nowebgl_line(self) -> tuple[str, bool] | None:
+        """(the line, whether the film handles it): without WebGL the story's text is readable, the hook says
+        mode 'no-webgl', and nothing is thrown."""
+        w = self.visits.get("nowebgl")
+        if not w:
+            return None
+        if not w.loaded:
+            return (f"Without WebGL: the page did not load ({w.load_error}).", False)
+        errs = _merged([w.page_errors])
+        st = (w.film or {}).get("story") or {}
+        mode = st.get("mode")
+        ok = (not errs and mode == "no-webgl" and st.get("withText", 0) > 0
+              and st.get("shown") == st.get("withText"))
+        said = (f"window.__story.mode is {_q(mode, 40)}" if mode else
+                "window.__story gives no mode" if st.get("hook") else "the page gives no window.__story")
+        return (("Without WebGL: " + (f"{len(errs)} uncaught error{_s(errs)} ({_q(errs[0])}); " if errs else "no errors; "))
+                + said + (f" (why: {_q(st['why'], 80)})" if st.get("why") else "")
+                + f"; {st.get('shown', 0)} of the {st.get('withText', 0)} beats with lines show them as text "
+                f"({st.get('chars', 0):,} characters)"
+                + ("" if ok else ". The page must read as an article without WebGL: every beat's lines shown, and "
+                   "window.__story.mode 'no-webgl'")
+                + f". Picture: {_rel(w.frame, self.out_dir)}.", ok)
+
+    def film_stills_line(self) -> str:
+        st = self.stills
+        made, skipped = st.get("made") or [], st.get("skipped") or []
+        if not made and not skipped:
+            return ""
+        notmade = ("; not made: " + "; ".join(f"{_q(x['id'], 40)} ({x['why']})" for x in skipped[:3])
+                   + (f" and {len(skipped) - 3} more" if len(skipped) > 3 else "")) if skipped else ""
+        if not made:
+            return "no stills for the page without WebGL" + notmade + "."
+        w, h = made[0]["width"], made[0]["height"]
+        blank = [x["file"] for x in made if x["content"] < EMPTY_CONTENT]
+        return ("stills for the page without WebGL, one per scene at its last beat, the picture alone "
+                f"({len(made)}, {w} x {h} px WebP, {_mb(sum(x['bytes'] for x in made) / len(made))} each on average): "
+                f"{st['dir']} (" + _names([x["file"] for x in made], 4) + "). Copy them beside the page "
+                "(stills/<scene id>.webp), show each in its scene's section of the article, and give it an alt text "
+                "that says what it shows"
+                + (f"; {_names(blank, 3)} show{'s' if len(blank) == 1 else ''} nothing but the background" if blank else "")
+                + notmade + ".")
+
+    def film_text(self) -> str:
+        """The answer for a film: the site's parts and wording, beats where a site has steps."""
+        broken, noticed = self.film_lines()
+        head = (f"STORY CHECKED in {self.seconds:.0f} s: "
+                + (f"{len(broken)} thing{_s(broken)} broken" if broken else "nothing broken")
+                + f", {len(noticed)} thing{_s(noticed)} a viewer would notice. "
+                + ("Open the contact sheets below with your file viewer and look at every frame before you change anything."
+                   if self.sheets else ""))
+        lines = [head]
+        if self.unfinished:
+            lines.append(f"The check stopped at its {self.budget_s:.0f} s limit before it was done ("
+                         + "; ".join(self.unfinished) + "). Nothing needs fixing because of that: a heavy page on software "
+                         "WebGL is slow here. For a quicker look call again with sizes=\"desktop\".")
+        if broken:
+            lines += ["", "Broken:"] + [f"- {b}" for b in broken]
+        if noticed:
+            lines += ["", "A viewer would notice:"] + [f"- {b}" for b in noticed]
+        lines += ["", "Measures:"]
+        f = self.film
+        ready = f.get("ready") or {}
+        lines.append(f"- Film: {_q(f.get('title') or '', 80)}, treatment {_q(f.get('treatment') or '', 40)}, "
+                     f"{len(f.get('scenes') or [])} scene{_s(f.get('scenes') or [])} and {f.get('total', 0)} "
+                     f"beat{_s(f.get('total', 0))}"
+                     + (f"; ready {ready['s']:.1f} s after the page was asked for ({f.get('size', 'desktop')})"
+                        if ready.get("state") == "resolved" and ready.get("s") is not None else "") + ".")
+        for name in ("desktop", "phone"):
+            v = self.visits.get(name)
+            if not (v and v.loaded and v.film):
+                continue
+            vp = SIZES[name]["viewport"]
+            per: dict[str, list[str]] = {}
+            for b in v.beats:
+                per.setdefault(b.scene, []).append("-" if b.content is None else _share(b.content))
+            sampled = (f" (sampled evenly: each scene's last beat and an even spread of the rest, at most "
+                       f"{FILM_BEATS_MAX})" if v.film.get("planned", 0) < v.film.get("total", 0) else "")
+            shot = len([b for b in v.beats if b.frame])
+            lines.append(f"- {name.capitalize()} {vp['width']}x{vp['height']}: {shot} of {v.film.get('total', 0)} "
+                         f"beats photographed{sampled} ({v.film.get('beats_s', 0):.0f} s); share of the picture showing "
+                         "something, per beat: " + "; ".join(f"{s} " + " ".join(x) for s, x in per.items()) + ".")
+        d = self.visits.get("desktop")
+        moves = [m for m in ((d.film or {}).get("moves") or [])] if d else []
+        read = [m for m in moves if m.get("p") is not None and m.get("t") is not None]
+        if read:
+            lines.append("- Motion while a beat plays (desktop, at each scene's last beat; share of the picture that "
+                         "differs between progress 0.3 and 1, and between ambient time 1 s and 3 s): "
+                         + "; ".join(f"{m['scene']} {_share(m['p'])} and {_share(m['t'])}" for m in read) + ".")
+        key, hsh = ((d.film or {}).get("key") if d else None), ((d.film or {}).get("hash") if d else None)
+        if key and key.get("got") == key.get("want"):
+            lines.append(f"- The right arrow key goes from {key['from']} to {key['want']}.")
+        if hsh and hsh.get("got") == hsh.get("want"):
+            lines.append(f"- Opened at {hsh['want']}, the film shows that beat.")
+        if line := self.bytes_line("all beats"):
+            lines.append(f"- {line}")
+        if d and d.probe is not None and d.beats:
+            if not d.probe.get("contexts"):
+                lines += [f"- {x}" for x in self.scene_line()]
+            else:
+                at = max(d.beats, key=lambda b: (b.triangles, -b.order))
+                md, mt = max(b.draws for b in d.beats), at.triangles
+                lines += [f"- {x}" for x in self._cost_lines(
+                    d, f"Scene (desktop, the heaviest beat): {md:,} draw call{_s(md)} and {mt:,} triangle{_s(mt)} in one "
+                       f"frame" + (f" (most triangles at {_beat_name(at)})" if mt else ""), "the first beat")]
+        for r in (self.film_reduced_line(), self.film_nowebgl_line()):
+            if r and r[1]:
+                lines.append(f"- {r[0]}")
+        lines += [f"- {x}" for x in self.facts_lines()]
+        lines += ["", "Pictures:"]
+        for name, sheet in self.sheets.items():
+            frames = [b.frame for b in self.visits[name].beats if b.frame]
+            lines.append(f"- {name} contact sheet, one tile per beat: {sheet}"
+                         + (f" (frames {_rel(frames[0], self.out_dir)} to {_rel(frames[-1], self.out_dir)})" if frames else ""))
+        if line := self.film_stills_line():
+            lines.append(f"- {line}")
+        lines.append(f"- all frames, the picture-only frames and the full record (report.json) are in {self.out_dir}")
+        left = max((int((v.probe or {}).get("layerLeft") or 0) for v in self.visits.values()), default=0)
+        if line := camera_line(self.camera, left):
+            lines.append(f"- about these pictures: {line}.")
+        return "\n".join(lines)
+
     def to_dict(self) -> dict:
         def visit(v: Visit) -> dict:
             out = {k: getattr(v, k) for k in ("name", "load_s", "loaded", "load_error", "page_errors", "console_errors", "failed",
@@ -1002,12 +1350,18 @@ class SiteReport:
             out["first_notch"] = v.first_notch
             out["requests"] = v.requests
             out["probe"] = v.probe
+            if v.film is not None:  # a film's record; a site's report.json is as it was
+                out["film"] = v.film
+                out["beats"] = [b.__dict__ for b in v.beats]
             return out
 
-        return {"target": self.target, "seconds": round(self.seconds, 1), "broken": self.broken(), "noticed": self.noticed(),
-                "unfinished": self.unfinished, "sheets": self.sheets, "facts": self.facts, "stills": self.stills,
-                "camera": self.camera,
-                "visits": {k: visit(v) for k, v in self.visits.items()}, "total_bytes": self.total_bytes()}
+        out = {"target": self.target, "seconds": round(self.seconds, 1), "broken": self.broken(), "noticed": self.noticed(),
+               "unfinished": self.unfinished, "sheets": self.sheets, "facts": self.facts, "stills": self.stills,
+               "camera": self.camera,
+               "visits": {k: visit(v) for k, v in self.visits.items()}, "total_bytes": self.total_bytes()}
+        if self.film:
+            out["film"] = self.film
+        return out
 
 
 def _s(n) -> str:
@@ -1370,6 +1724,217 @@ def _short(url: str, v: Visit) -> str:
     return name or "the page itself"
 
 
+# --------------------------------------------------------------------------- a film
+
+
+def _share(x: float | None) -> str:
+    """A share of a picture as the answer writes it: whole percent, or two decimals under 1 % (a beat that changes a
+    small light changes a fraction of a percent, and '0%' would say it changed nothing)."""
+    if x is None:
+        return "-"
+    return "0%" if x == 0 else f"{x:.2%}" if x < 0.01 else f"{x:.0%}"
+
+
+def _beat_name(b: Beat) -> str:
+    """A beat as the answer names it: its hash, which opens it (#<scene>-<beat, from 1>)."""
+    return f"#{b.scene}-{b.beat + 1}"
+
+
+def _beat_names(beats: list[Beat], n: int = 6) -> str:
+    return _and([_beat_name(b) for b in beats[:n]]) + (f" and {len(beats) - n} more" if len(beats) > n else "")
+
+
+def film_order(scenes: list[dict]) -> list[tuple[str, int]]:
+    """Every beat of the film in its order: (scene id, beat index from 0)."""
+    return [(s["id"], k) for s in scenes for k in range(s["beats"])]
+
+
+def film_sample(scenes: list[dict], cap: int = FILM_BEATS_MAX) -> list[tuple[str, int]]:
+    """The beats photographed, in film order: all of them up to ``cap``; beyond it every scene's last beat (its still and
+    the reading of whether it moves are taken there; an even spread of those when the scenes alone pass ``cap``), then
+    the other beats evenly spread over the film until ``cap``."""
+    order = film_order(scenes)
+    if len(order) <= cap:
+        return order
+    last = {(s["id"], s["beats"] - 1) for s in scenes if s["beats"]}
+    keep = [b for b in order if b in last]
+    if len(keep) >= cap:
+        return [keep[round(i * (len(keep) - 1) / max(cap - 1, 1))] for i in range(cap)]
+    rest = [b for b in order if b not in last]
+    room = cap - len(keep)
+    picked = {rest[round(i * (len(rest) - 1) / max(room - 1, 1))] for i in range(room)} if room > 1 else {rest[len(rest) // 2]}
+    chosen = set(keep) | picked
+    return [b for b in order if b in chosen]
+
+
+def picture_change(a: bytes, b: bytes) -> float | None:
+    """Share of the pixels that differ between two pictures of one size by more than 8 % of full scale in any channel
+    (the rule of ``canvas_content``), at full size: what a beat changes may be a small light. None for two sizes."""
+    from PIL import Image
+
+    x, y = (np.asarray(Image.open(io.BytesIO(f)).convert("RGB"), dtype=np.int16) for f in (a, b))
+    if x.shape != y.shape:
+        return None
+    return float((np.abs(x - y) > 0.08 * 255).any(axis=2).mean())
+
+
+class _TextOf(HTMLParser):
+    """The text of an HTML document, scripts, styles and templates left out, character references decoded."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in ("script", "style", "template"):
+            self._skip += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style", "template") and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip:
+            self.parts.append(data)
+
+
+def html_text(html: str) -> str:
+    """The text of the page's HTML as served, with no whitespace at all: a line is compared without its whitespace,
+    since tags between two words (a <br>, an <em>) leave none or some, and the reader sees the same words."""
+    p = _TextOf()
+    with contextlib.suppress(Exception):  # a document the parser gives up on: what it read so far
+        p.feed(html)
+        p.close()
+    return re.sub(r"\s+", "", "".join(p.parts))
+
+
+def foreign_lines(lines: list[str], text: str) -> list[str]:
+    """The lines of ``info().lines`` that do not occur in the HTML's text (``html_text``), whitespace aside."""
+    return [x for x in lines if (s := re.sub(r"\s+", "", x)) and s not in text]
+
+
+def film_findings(rep: SiteReport) -> list[dict]:
+    """What the answer says of a film beyond a site's faults, in its order: one dict per finding with 'kind', 'broken'
+    (True: must be fixed; False: a viewer would notice) and what its sentence needs (``SiteReport._film_sentence``).
+    A fault of a beat's lines (none, not in the HTML, too long) is a fault of the page and is named once, whichever size
+    found it; a fault of a picture is named per size."""
+    out: list[dict] = []
+    f = rep.film
+    if f.get("missing"):
+        out.append({"kind": "missing", "broken": True, "members": f["missing"]})
+    ready = f.get("ready") or {}
+    if ready.get("state") in ("rejected", "pending"):
+        out.append({"kind": "ready", "broken": True, "state": ready["state"], "why": ready.get("why", "")})
+    if not f.get("total"):
+        out.append({"kind": "no_scenes", "broken": True})
+    sized = [(name, v) for name in ("desktop", "phone") if (v := rep.visits.get(name)) and v.film]
+    calls: dict[tuple[str, str], dict] = {}
+    for name, v in sized:
+        for c in v.film.get("calls") or []:
+            g = calls.setdefault((c["call"], c["why"]), {"kind": "call", "broken": True, "call": c["call"], "why": c["why"],
+                                                         "lost": c["lost"], "sizes": []})
+            if name not in g["sizes"]:
+                g["sizes"].append(name)
+    out += calls.values()
+    for name, v in sized:
+        empty = [b for b in v.beats if b.content is not None and b.content < EMPTY_CONTENT]
+        if empty:
+            out.append({"kind": "empty", "broken": True, "size": name, "beats": empty})
+    beats: dict[tuple[str, int], Beat] = {}
+    for _, v in sized:
+        for b in v.beats:
+            if not b.call and b.info is not None:
+                beats.setdefault((b.scene, b.beat), b)
+    ordered = sorted(beats.values(), key=lambda b: b.order)
+    for b in ordered:
+        if not b.lines and not (b.html or {}).get("silent"):
+            out.append({"kind": "no_line", "broken": True, "beat": b})
+    for b in ordered:
+        for line in b.foreign:
+            out.append({"kind": "foreign", "broken": True, "beat": b, "line": line})
+    if rep.hosts_line():
+        out.append({"kind": "hosts", "broken": True})
+    for name, v in sized:
+        prev = {(b.scene, b.beat): b for b in v.beats}
+        for b in v.beats:
+            p = prev.get((b.scene, b.beat - 1))
+            if p is not None and b.change is not None and b.change < FILM_SAME:
+                out.append({"kind": "same", "broken": False, "size": name, "beat": b, "prev": p})
+    d = rep.visits.get("desktop")
+    for m in ((d.film or {}).get("moves") or []) if d else []:
+        if m.get("p") is not None and m.get("t") is not None and m["p"] < FILM_SAME and m["t"] < FILM_SAME:
+            out.append({"kind": "still", "broken": False, "move": m})
+    for name, v in sized:
+        for b in v.beats:
+            h = b.html or {}
+            if h.get("shown") and (h.get("scrolls") or h.get("outside")):
+                out.append({"kind": "caption", "broken": False, "size": name, "beat": b})
+    for b in ordered:
+        for line in b.lines:
+            if len(line) > FILM_LINE_CHARS:
+                out.append({"kind": "long", "broken": False, "beat": b, "line": line})
+    if len(sized) == 2:
+        (na, va), (nb, vb) = sized
+        for (n1, v1), (n2, v2) in (((na, va), (nb, vb)), ((nb, vb), (na, va))):
+            there = {(b.scene, b.beat): b for b in v2.beats if b.content is not None}
+            low = [(b, there[(b.scene, b.beat)].content) for b in v1.beats if b.content is not None
+                   and (b.scene, b.beat) in there and EMPTY_CONTENT <= b.content < NEARLY_EMPTY * there[(b.scene, b.beat)].content]
+            if low:
+                out.append({"kind": "tone", "broken": False, "size": n1, "other": n2, "beats": [b for b, _ in low],
+                            "other_content": [x for _, x in low]})
+    for k in ("key", "hash"):
+        r = (d.film or {}).get(k) if d else None
+        if r and r.get("want") and r.get("got") != r["want"]:
+            out.append({"kind": k, "broken": False, **r})
+    return out
+
+
+def _film_hook(got: Any) -> dict | None:
+    """The hook as site_probe.js read it (``S.filmHook``), checked again; None: no window.__story."""
+    if not isinstance(got, dict) or got.get("hook") is not True:
+        return None
+    scenes = []
+    seen: set[str] = set()
+    for s in (got.get("scenes") or [])[:64]:
+        if not isinstance(s, dict) or not isinstance(s.get("id"), str) or s["id"] in seen:
+            continue
+        n = s.get("beats")
+        if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= 200:
+            continue
+        seen.add(s["id"])
+        scenes.append({"id": s["id"][:80], "title": str(s.get("title") or "")[:200], "beats": n})
+    r = got.get("ready") if isinstance(got.get("ready"), dict) else {}
+    at = r.get("at")
+    state = r.get("state") if r.get("state") in ("resolved", "rejected", "pending", "missing") else "missing"
+    text = lambda k, n: str(got[k])[:n] if isinstance(got.get(k), str) else None  # noqa: E731
+    return {"missing": [m for m in FILM_MEMBERS if m in (got.get("missing") or [])], "scenes": scenes,
+            "total": sum(s["beats"] for s in scenes), "more": bool(got.get("more")),
+            "mode": text("mode", 40), "why": text("why", 200), "title": text("title", 200),
+            "treatment": text("treatment", 80),
+            "ready": {"state": state, "why": str(r.get("why") or "")[:200],
+                      "s": round(at / 1000, 2) if isinstance(at, (int, float)) and math.isfinite(at) and at >= 0 else None}}
+
+
+def _film_info(i: Any) -> dict | None:
+    """info() as site_probe.js cut it (``cleanInfo``), checked again."""
+    if not isinstance(i, dict):
+        return None
+    beat = i.get("beat")
+    return {"scene": str(i["scene"])[:80] if isinstance(i.get("scene"), str) else None,
+            "beat": beat if isinstance(beat, int) and not isinstance(beat, bool) else None,
+            "lines": [str(x)[:2000] for x in (i.get("lines") or [])[:8] if isinstance(x, str)],
+            "place": str(i.get("place") or "")[:20], "cut": str(i["cut"])[:40] if isinstance(i.get("cut"), str) else None,
+            "playing": i.get("playing") is True}
+
+
+def _where_info(i: dict | None) -> str:
+    """Where info() says the film is, as a hash, or ''."""
+    if not i or i.get("scene") is None or i.get("beat") is None:
+        return ""
+    return f"#{i['scene']}-{i['beat'] + 1}"
+
+
 # --------------------------------------------------------------------------- serving a folder
 
 
@@ -1601,6 +2166,33 @@ def sheet_flags(s: Step, held: set[int], small: set[int]) -> list[str]:
                             ("label small", s.index in small),
                             ("blends in", s.contrast is not None and s.contrast < CONTRAST_LOW),
                             ("text mid-move", _text_in_move(s) and any(c or h for c, h in faults))) if on]
+
+
+def film_flags(b: Beat) -> list[str]:
+    """The few words a film's contact sheet writes under a beat's tile, one per thing found there."""
+    h = b.html or {}
+    return [f for f, on in (("empty", b.content is not None and b.content < EMPTY_CONTENT),
+                            ("same", b.change is not None and b.change < FILM_SAME),
+                            ("no line", b.info is not None and not b.lines and not h.get("silent")),
+                            ("not in HTML", bool(b.foreign)),
+                            ("does not fit", bool(h.get("shown") and (h.get("scrolls") or h.get("outside"))))) if on]
+
+
+def film_sheet(v: Visit, out: Path) -> bool:
+    """A film's contact sheet: one tile per beat photographed, labelled with the scene, the beat (from 1) and its first
+    line cut short (``FILM_LABEL_CHARS``), the findings in red. False: no beat was photographed."""
+    n = FILM_LABEL_CHARS.get(v.name, 20)
+    frames = []
+    for b in v.beats:
+        if not b.frame:
+            continue
+        first = " ".join((b.lines or [""])[0].split())
+        flags = film_flags(b)
+        label = f"{b.scene} {b.beat + 1}  " + (first[:n] + ("..." if len(first) > n else "") if first else "(no line)")
+        frames.append((b.frame, label + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
+    if frames:
+        contact_sheet(frames, out, 480 if v.name == "desktop" else 200, 3 if v.name == "desktop" else min(len(frames), 5))
+    return bool(frames)
 
 
 def contact_sheet(frames: list[tuple[str, str, bool]], out: Path, thumb_w: int, cols: int) -> None:
@@ -1875,6 +2467,8 @@ class _Visitor:
         self._sizes: list[asyncio.Future] = []
         self.cdp = None
         self.faded_doc: str | None = None  # the document whose text the visit's faded reads are of (``faded_text``)
+        self.document = None  # the response that brought the page: a film's lines are compared with its HTML
+        self.why = ""  # why the latest call of a film's hook failed (``film_call``)
 
     def log(self, what: str) -> None:
         _log.debug("[%6.1f] %s: %s", time.monotonic() - self.clock.t0, self.v.name, what)
@@ -2069,7 +2663,7 @@ class _Visitor:
     async def load(self, page) -> bool:
         t0 = time.monotonic()
         try:
-            await page.goto(self.url, wait_until="load", timeout=max(5.0, min(60.0, self.clock.left() - WRAP_UP_S)) * 1000)
+            self.document = await page.goto(self.url, wait_until="load", timeout=max(5.0, min(60.0, self.clock.left() - WRAP_UP_S)) * 1000)
         except Exception as e:  # noqa: BLE001  the reason goes in the answer
             self.v.load_error = str(e).split("\n")[0][:200]
             return False
@@ -2393,6 +2987,257 @@ class _Visitor:
                 continue
             st.faded = [g for g in (_faded_group(x) for x in r["groups"][:SUBJECTS_READ]) if g]
 
+    # ---- a film
+    async def read_film(self, page, wait: float) -> None:
+        """Whether the page is a film (window.__story), and its hook after waiting at most ``wait`` for ready: sets
+        ``Visit.film`` to {'hook': ...}, or leaves it None for a page without the hook."""
+        got = await _bounded(page, f"window.__agySite.filmWait({round(wait * 1000)})", None, wait + 3.0)
+        hook = _film_hook(got)
+        if hook is not None:
+            self.v.film = {"hook": hook, "calls": []}
+            self.log(f"a film: {hook['total']} beats in {len(hook['scenes'])} scenes, ready {hook['ready']}")
+
+    async def film_call(self, page, method: str, args: list, picture: str | None, lost: str) -> dict | None:
+        """One call of the film's hook, bounded by ``FILM_CALL_S`` (in the page, and here for a page stuck in its own
+        code). ``picture``: 'image/jpeg', or 'both' for a PNG beside it, read in the task the call resolved in. A call
+        that hangs or rejects is recorded with what was lost by it (``lost``), and None is returned."""
+        call = f"{method}(" + ", ".join(f"'{a}'" if isinstance(a, str) else "{ settle: true }" if isinstance(a, dict)
+                                       else str(a) for a in args) + ")"
+        js = (f"window.__agySite.filmCall({json.dumps(method)}, {json.dumps(args)}, {round(FILM_CALL_S * 1000)}, "
+              f"{json.dumps(picture)})")
+        got = await _bounded(page, js, {"why": "late"}, FILM_CALL_S + 3.0)
+        if not isinstance(got, dict) or got.get("ok") is not True:
+            why = str((got or {}).get("why") or "late")[:200] if isinstance(got, dict) else "late"
+            if why != "missing":  # a member the hook lacks is named once, with the others
+                self.v.film["calls"].append({"call": call, "method": method, "why": why, "lost": lost})
+            self.log(f"film: {call} failed ({why})")
+            self.why = why
+            return None
+        return got
+
+    async def film_picture(self, page, got: dict, key: str = "picture") -> bytes | None:
+        """The picture a hook call left: read in its own task by the probe, or else the canvas photographed alone in
+        the frames that follow (``canvas_alone``); None without a canvas in view."""
+        import base64
+
+        data = got.get(key)
+        if isinstance(data, str) and data.startswith("data:image/") and len(data) < 64_000_000:
+            with contextlib.suppress(Exception):
+                return base64.b64decode(data.split(",", 1)[1])
+        end = await _bounded(page, "window.__agySite.stepEnd(false)", None)
+        if not isinstance(end, dict) or not end.get("rect"):
+            return None
+        with contextlib.suppress(Exception):
+            return await asyncio.wait_for(self.canvas_alone(page, end["rect"]), FILM_CALL_S)
+        return None
+
+    async def beats(self, page, stills: bool) -> dict:
+        """Photograph the film beat by beat (``film_sample``): go(scene, beat) settled, two frames, the window, the
+        picture alone, info(), and what the HTML says of that beat (site_probe.js, ``S.filmBeat``). With ``stills``,
+        each scene's last beat is also written as ``stills/<scene id>.webp``. Returns the stills record."""
+        import base64
+
+        f = self.v.film
+        hook = f["hook"]
+        plan = film_sample(hook["scenes"])
+        f["planned"], f["total"] = len(plan), hook["total"]
+        order = {b: i for i, b in enumerate(film_order(hook["scenes"]))}
+        last = {(s["id"], s["beats"] - 1) for s in hook["scenes"] if s["beats"]}
+        html = ""
+        if self.document is not None:
+            with contextlib.suppress(Exception):
+                html = await asyncio.wait_for(self.document.text(), 5.0)
+        text = html_text(html)
+        ids = [s["id"] for s in hook["scenes"]]
+        names = dict(zip(ids, still_names(ids)))
+        folder = (self.out / "stills").resolve()
+        made: list[dict] = []
+        skipped: list[dict] = []
+        pictures: dict[tuple[str, int], bytes] = {}
+        t0 = time.monotonic()
+        for scene, k in plan:
+            if self.clock.left() < WRAP_UP_S + 2.0:
+                break
+            tb = time.monotonic()
+            b = Beat(scene, k, order[(scene, k)], first=k == 0, last=(scene, k) in last)
+            self.v.beats.append(b)
+            want_still = stills and b.last
+            got = await self.film_call(page, "go", [scene, k, {"settle": True}], "both" if want_still else "image/jpeg",
+                                       f"beat #{scene}-{k + 1} was not photographed")
+            if got is None:
+                b.call = self.why
+                if want_still:
+                    skipped.append({"id": scene, "why": "its last beat did not answer"})
+                continue
+            b.info = _film_info(got.get("info"))
+            b.lines = (b.info or {}).get("lines") or []
+            b.foreign = foreign_lines(b.lines, text) if text else []
+            pic = await self.film_picture(page, got)
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+            shot = await self.shot()
+            end = await _bounded(page, "window.__agySite.stepEnd(false)", None)
+            w = (end or {}).get("win") or {} if isinstance(end, dict) else {}
+            b.draws, b.triangles = int(w.get("maxDraws", 0)), int(w.get("maxTris", 0))
+            b.html = await _bounded(page, f"window.__agySite.filmBeat({json.dumps(scene)}, {k})", None)
+            fw = self.out / f"{self.v.name}_b{b.order:02d}.jpg"
+            fw.write_bytes(shot)
+            b.frame = str(fw)
+            if pic is not None:
+                fc = self.out / f"{self.v.name}_b{b.order:02d}_canvas.jpg"
+                fc.write_bytes(pic)
+                b.canvas_frame = str(fc)
+                b.content = round(canvas_content(pic), 4)
+                pictures[(scene, k)] = pic
+                if (prev := pictures.get((scene, k - 1))) is not None:
+                    c = picture_change(prev, pic)
+                    b.change = None if c is None else round(c, 5)
+            if want_still:
+                png = got.get("png")
+                data = png if isinstance(png, str) and png.startswith("data:image/") else (
+                    "data:image/jpeg;base64," + base64.b64encode(pic).decode() if pic is not None else None)
+                if data is None:
+                    skipped.append({"id": scene, "why": "no picture"})
+                else:
+                    try:
+                        webp, size = await asyncio.to_thread(still_webp, data)
+                        folder.mkdir(exist_ok=True)
+                        fs = folder / f"{names[scene]}.webp"
+                        fs.write_bytes(webp)
+                        made.append({"id": scene, "file": fs.name, "beat": _beat_name(b), "width": size[0],
+                                     "height": size[1], "bytes": len(webp), "content": round(canvas_content(webp), 4),
+                                     "how": "read as the beat was drawn" if isinstance(png, str) else "photographed"})
+                    except Exception as e:  # noqa: BLE001  a picture Pillow cannot read
+                        skipped.append({"id": scene, "why": f"unreadable picture ({type(e).__name__})"})
+            b.seconds = round(time.monotonic() - tb, 2)
+        f["beats_s"] = round(time.monotonic() - t0, 2)
+        self.log(f"film: {len(self.v.beats)} of {len(plan)} beats in {f['beats_s']:.1f} s")
+        return {"dir": str(folder), "made": made, "skipped": skipped} if stills else {}
+
+    async def film_moves(self, page) -> None:
+        """Whether each scene moves while a beat plays, at its last beat: at(scene, beat, 0.3, 1) against
+        at(scene, beat, 1, 1) (the beat's own motion), and that against at(scene, beat, 1, 3) (ambient time), the
+        pictures read as ``film_picture`` reads them, compared by ``picture_change``. Within ``FILM_MOVES_S``."""
+        f = self.v.film
+        f["moves"] = []
+        t0 = time.monotonic()
+        for s in f["hook"]["scenes"]:
+            if not s["beats"]:
+                continue
+            if time.monotonic() - t0 > FILM_MOVES_S or self.clock.left() < WRAP_UP_S + 4.0:
+                f["moves"].append({"scene": s["id"], "why": "no time left"})
+                continue
+            last = s["beats"] - 1
+            pics = []
+            for p, t in ((0.3, 1), (1, 1), (1, 3)):
+                got = await self.film_call(page, "at", [s["id"], last, p, t], "image/jpeg",
+                                           f"whether scene '{s['id']}' moves was not read")
+                pic = await self.film_picture(page, got) if got else None
+                if pic is None:
+                    break
+                pics.append(pic)
+            m: dict = {"scene": s["id"], "beat": f"#{s['id']}-{last + 1}"}
+            if len(pics) == 3:
+                m["p"], m["t"] = picture_change(pics[0], pics[1]), picture_change(pics[1], pics[2])
+            else:
+                m["why"] = "not read"
+            f["moves"].append(m)
+
+    async def _film_where(self, page, other: str, cap: float) -> tuple[str, str]:
+        """Where info() says the film is once it is no longer ``other`` (polled for at most ``cap``): (hash, why not)."""
+        t0, where = time.monotonic(), ""
+        while True:
+            info = _film_info(await _bounded(page, "window.__agySite.filmInfo()", None))
+            where = _where_info(info)
+            if (where and where != other) or time.monotonic() - t0 > cap:
+                return where, "" if where else "info() gave no scene and beat"
+            await asyncio.sleep(0.1)
+
+    async def film_key(self, page) -> None:
+        """Whether a real press of the right arrow key advances: from the film's first beat, settled, to the next."""
+        order = film_order(self.v.film["hook"]["scenes"])
+        if len(order) < 2:
+            return
+        (s0, k0), (s1, k1) = order[0], order[1]
+        if await self.film_call(page, "go", [s0, k0, {"settle": True}], None, "the right arrow key was not tried") is None:
+            return
+        frm, want = f"#{s0}-{k0 + 1}", f"#{s1}-{k1 + 1}"
+        with contextlib.suppress(Exception):
+            await page.evaluate("document.activeElement && document.activeElement.blur && document.activeElement.blur()")
+            await asyncio.wait_for(page.keyboard.press("ArrowRight"), 5.0)
+        got, why = await self._film_where(page, frm, FILM_KEY_S)
+        self.v.film["key"] = {"from": frm, "want": want, "got": got, "why": why}
+
+    async def film_hash(self, ctx, canvas_layer: bool) -> None:
+        """Whether the hash opens its beat: the page loaded afresh, in a page of its own, at #<scene>-<beat> of the
+        film's middle beat, and info() read once the film is ready."""
+        order = film_order(self.v.film["hook"]["scenes"])
+        if len(order) < 2 or self.clock.left() < WRAP_UP_S + 8.0:
+            return
+        s, k = order[len(order) // 2]
+        want = f"#{s}-{k + 1}"
+        page = await ctx.new_page()
+        try:
+            await page.add_init_script(_probe_script(False, canvas_layer=canvas_layer))
+            wait = max(2.0, min(FILM_READY_S, self.clock.left() - WRAP_UP_S - 6.0))
+            await page.goto(self.url.split("#")[0] + want, wait_until="load", timeout=wait * 1000)
+            await _bounded(page, f"window.__agySite.filmWait({round(wait * 1000)})", None, wait + 3.0)
+            got, why = await self._film_where(page, "", 0.0)
+            if got != want:  # a page that goes to the hash's beat after ready: a moment more
+                got, why = await self._film_where(page, got or "-", FILM_KEY_S)
+                got = got or ""
+        except Exception as e:  # noqa: BLE001  a page that does not load a second time: said, and the visit goes on
+            got, why = "", f"the page did not load again ({type(e).__name__})"
+        finally:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(page.close(), 5.0)
+        self.v.film["hash"] = {"want": want, "got": got, "why": why}
+
+    async def film_reduced(self, page) -> None:
+        """Under reduce motion, a beat reached as a viewer reaches it (advance() from the beat before the film's middle
+        beat) must be shown finished at once: the window photographed two frames after the call and again a second
+        later, compared by ``picture_change``."""
+        order = film_order(self.v.film["hook"]["scenes"])
+        if not order:
+            return
+        m = max(1, len(order) // 2) if len(order) > 1 else 0
+        s, k = order[m]
+        rec: dict = {"beat": f"#{s}-{k + 1}"}
+        self.v.film["reduced"] = rec
+        if m:
+            ps, pk = order[m - 1]
+            ok = await self.film_call(page, "go", [ps, pk, {"settle": True}], None, "reduce motion was not read")
+            ok = ok and await self.film_call(page, "advance", [], None, "reduce motion was not read")
+        else:
+            ok = await self.film_call(page, "go", [s, k], None, "reduce motion was not read")
+        if not ok:
+            rec["why"] = "the hook did not answer"
+            return
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+        a = await self.shot_png()
+        await asyncio.sleep(1.0)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+        b = await self.shot_png()
+        rec["change"] = picture_change(a, b)
+        f = self.out / f"{self.v.name}.jpg"
+        from PIL import Image
+
+        Image.open(io.BytesIO(b)).convert("RGB").save(f, "JPEG", quality=80)
+        self.v.frame = str(f)
+
+    async def film_story(self, page) -> None:
+        """What the page without WebGL shows of the story (site_probe.js, ``S.filmStory``): kept for a page that has
+        the film's hook or its sections."""
+        got = await _bounded(page, "window.__agySite.filmStory()", None)
+        if isinstance(got, dict) and (got.get("hook") or got.get("withText")):
+            num = lambda k: int(got[k]) if isinstance(got.get(k), int) and 0 <= got[k] < 1e8 else 0  # noqa: E731
+            self.v.film = {**(self.v.film or {}), "story": {
+                "hook": got.get("hook") is True, "mode": str(got["mode"])[:40] if isinstance(got.get("mode"), str) else None,
+                "why": str(got["why"])[:200] if isinstance(got.get("why"), str) else None,
+                "withText": num("withText"), "shown": num("shown"), "chars": num("chars")}}
+
 
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
 
@@ -2707,17 +3552,29 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
             try:
                 if not await vis.load(page):
                     return
+                # a film (window.__story) is stepped beat by beat in every visit instead of scrolled; its ready is
+                # waited for first, so that what follows sees the film and not its "Loading"
+                await vis.read_film(page, FILM_READY_NOGL_S if no_webgl else FILM_READY_S)
+                film, film_stills = vis.v.film is not None and not no_webgl, {}
                 if idle:
                     vis.v.idle = await vis.idle(page)
                 if facts:
                     with contextlib.suppress(Exception):
                         vis.v.facts_raw = await page.evaluate(_FACTS_JS)
-                if do_steps:
+                if do_steps and film:
+                    film_stills = await vis.beats(page, stills)
+                    if name == "desktop":
+                        await vis.film_moves(page)
+                        await vis.film_key(page)
+                        await vis.film_hash(ctx, rep.camera == "layer")
+                elif do_steps:
                     await vis.steps(page, do_steps, canvas, sideways, notch=name == "desktop")
                     await vis.between(page, do_steps)
                     await vis.text_pass(page, do_steps)
                     await vis.faded(page)
-                if one_step is not None:
+                if one_step is not None and film:
+                    await vis.film_reduced(page)
+                elif one_step is not None:
                     geo = await page.evaluate("window.__agySite.geometry()")
                     await vis.scroll_to(page, round(geo["max"] * one_step))
                     shot, secs, motion = await vis.settle(page, SETTLE_CAP_S)
@@ -2731,7 +3588,11 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                     vis.v.frame = str(f)
                 info = await vis.info(page)
                 vis.v.probe, vis.v.memory, vis.v.text_chars = info, info.get("memory"), info.get("textChars")
-                if stills:
+                if no_webgl:
+                    await vis.film_story(page)
+                if stills and film:
+                    rep.stills = film_stills  # one per scene, taken at its last beat by the beats pass
+                elif stills:
                     # last: drawing each chapter's rest moves the page, and nothing measured after would be the visit's
                     rep.stills = await vis.stills(page)
             finally:
@@ -2789,7 +3650,12 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                     v.load_error = f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}"
         for name in ("desktop", "phone"):
             v = rep.visits.get(name)
-            if v and v.loaded and len(v.steps) < steps:
+            if v and v.film is not None:
+                # beats not tried for want of time; a beat whose call failed is named with the call
+                if v.loaded and len(v.beats) < v.film.get("planned", 0):
+                    shot = len([b for b in v.beats if b.frame])
+                    rep.unfinished.append(f"{name}: {shot} of {v.film['planned']} beats photographed")
+            elif v and v.loaded and len(v.steps) < steps:
                 rep.unfinished.append(f"{name}: {len(v.steps)} of {steps} steps photographed")
             elif v and not v.loaded and not v.load_error:
                 rep.unfinished.append(f"{name}: the page had not loaded")
@@ -2800,7 +3666,12 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     # pictures and facts
     for name in ("desktop", "phone"):
         v = rep.visits.get(name)
-        if v and v.steps:
+        if v and v.film is not None and not rep.film:
+            rep.film = {**v.film["hook"], "size": name}
+        if v and v.film is not None:
+            if film_sheet(v, out / f"sheet_{name}.jpg"):
+                rep.sheets[name] = str(out / f"sheet_{name}.jpg")
+        elif v and v.steps:
             frames = []
             held = {st.index for r in held_runs(v.steps) for st in r["steps"]}
             small = {st.index for seen in small_labels(v.steps).values() for st, _ in seen}
