@@ -871,7 +871,11 @@ levels.
   every composition verdict against run 6 and still prefers them to a card over a picture in transit. Whether a
   shorter move is better was not read cleanly.
 - **The check does not name a text card that lies over a machine which is not the shot's subject, or a machine in
-  the foreground cut by the frame**: seven and three of the ten composition verdicts against run 6.
+  the foreground cut by the frame**: seven and three of the ten composition verdicts against run 6. A rule for it
+  was looked at and not written: by the check's own measures run 4's site, the judge's choice, has larger props
+  half under its card, and at more steps, than run 6's (a prop bigger than the shot's subject and 44 % hidden at
+  one step, one as big and 49 % hidden at another, against 19 % hidden in run 6's frame). The measure does not
+  tell the frame the judge faults from the frames it prefers.
 - **How a page moves is measured at one place.** The first wheel notch, on the desktop. Nothing reads a hold lower
   down that answers a notch with nothing, or what a short swipe changes on a phone, where some holds of runs 4 and
   5 move the picture by under a pixel per 120 px. Nothing measures how smooth the motion is: the check's browser
