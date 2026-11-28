@@ -636,8 +636,9 @@
     return { why: 'the page drew nothing after setProgress(' + T + ')' };
   };
 
-  // ---- a film (site_check.py, film mode): a page with no scroll, stepped beat by beat through window.__story (the
-  // story-film contract: ready, mode, title, treatment, scenes, go, play, at, advance, back, setAuto, info). The hook
+  // ---- a story (site_check.py, "a story"; the names here say film, which the first stories were): a page with no
+  // scroll, a deck of slides over a 3D stage or a film, stepped beat by beat through window.__story (the story
+  // contract: ready, mode, title, treatment, scenes, go, play, at, advance, back, setAuto, info). The hook
   // is the page's own code, as window.__site is: it may lack members, throw, never resolve or return anything, so
   // every call is bounded in time and everything it returns is cut and checked here and again in site_check.py.
   const FILM_MEMBERS = ['ready', 'mode', 'title', 'treatment', 'scenes', 'go', 'play', 'at', 'advance', 'back', 'setAuto', 'info'];
@@ -713,11 +714,15 @@
       if (i.lines && typeof i.lines.length === 'number') {
         for (let k = 0; k < Math.min(i.lines.length, FILM_LINES); k++) if (typeof i.lines[k] === 'string') lines.push(i.lines[k].slice(0, LINE_CHARS));
       }
+      // layout: how the scene's text is laid out ('caption' when absent: the words under or over the picture, one
+      // beat's at a time; any other is a slide, whose beats add to what is shown). form ('deck' or 'film') and theme
+      // are the whole story's.
       return { scene: typeof i.scene === 'string' || typeof i.scene === 'number' ? String(i.scene).slice(0, NAME_CHARS) : null,
                beat: Number.isInteger(i.beat) ? i.beat : null, beats: Number.isInteger(i.beats) ? i.beats : null,
                title: str(i.title, 200), lines, linesGiven: !!(i.lines && typeof i.lines.length === 'number'),
                playing: i.playing === true, cut: str(i.cut, 40), auto: i.auto === true,
-               place: str(i.place, 20), notes: str(i.notes, 400) };
+               place: str(i.place, 20), notes: str(i.notes, 400),
+               layout: str(i.layout, 20), form: str(i.form, 20), theme: str(i.theme, 40) };
     } catch (e) { return null; }
   };
   S.filmInfo = () => {
@@ -781,9 +786,225 @@
     }
     return out;
   };
-  // What the HTML says of the beat the film shows, and whether its lines fit where they are shown: every visible
-  // line box inside the window and inside each ancestor that clips (overflow other than visible), none of those
-  // scrolling over its height, and a headline over the picture (data-place="over") inside the picture's box.
+  // The story's text at rest (site_check.py, _Visitor.beats). A slide's lines come in when their beat becomes
+  // current, each rising and fading in over about half a second, 80 ms apart, by CSS transitions (the story
+  // contract, part 2), and a caption may be typed in. go(id, beat, { settle: true }) is to show them whole. Where a
+  // page lets the entrance run all the same, the window photographed two frames later shows lines a tenth drawn,
+  // lines under half their opacity are not read at all (rendered), and the contrast of the rest is that of a line on
+  // its way. So before the window is photographed every animation that runs on the story's text, or on what holds
+  // it, is ended: a CSS transition, a CSS animation or one made with element.animate() goes to its last frame and
+  // fires its end event as it would have (S.readText says why ending beats waiting). One that never ends cannot be
+  // ended and stays. A tween run from script cannot be ended from here: where a line of the scene is still part way
+  // (a chain of opacities between REST_FAINT and whole) or none of the beat's own lines is drawn, the look is taken
+  // again REST_LOOK_MS and a frame later until two looks agree, for at most ms. Where every line stands whole at the
+  // first look nothing waits: 2 ms a beat on a film of 48.
+  const REST_FAINT = 0.02;
+  const endStoryAnimations = () => {
+    let n = 0;
+    try {
+      for (const a of document.getAnimations()) {
+        const t = a.effect && a.effect.target;
+        if (!t || a.playState !== 'running' || !t.closest) continue;
+        if (!t.closest('section[data-scene]') && !t.querySelector('section[data-scene]')) continue;
+        try { a.finish(); n++; } catch (e) { /* it never ends */ }
+      }
+    } catch (e) {}
+    return n;
+  };
+  const restLook = (sec) => {
+    opacityOf.clear();
+    return lineNodes(sec).map((t) => {
+      const p = t.parentElement;
+      const drawn = p.getClientRects().length > 0 && getComputedStyle(p).visibility === 'visible';
+      return { t, o: drawn ? chainOpacity(p) : 0, y: drawn ? p.getBoundingClientRect().top : 0 };
+    });
+  };
+  // Returns { ended, settled, waited_ms, ms }: the animations ended, whether the text stood still at the end, how
+  // long it was waited for, and how long the call took in the page; then `frames` more frames of the page are let
+  // pass (the two the window's photograph needs, in the same call: a page busy drawing answers one call late, not
+  // two), for at most REST_FRAMES_MS, so that a page that has stopped drawing still says how its text came to rest.
+  const REST_FRAMES_MS = 2500;
+  S.filmRest = async (id, beat, ms, frames) => {
+    const done = async (out) => { if (frames) await late(S.afterFrames(frames), REST_FRAMES_MS); return out; };
+    const start = pnow();
+    try {
+      S.wordsOff(0);  // a call cut short may have left the words without their fill
+      let ended = endStoryAnimations();
+      const { sec, el } = beatElement(id, beat);
+      if (!sec) return done({ ended, waited_ms: 0, settled: true, ms: Math.round(pnow() - start) });
+      const own = new Set(el ? lineNodes(el) : []);
+      const restless = (look) => look.some((x) => x.o > REST_FAINT && x.o < 1 - REST_SAME)
+        || (own.size > 0 && !look.some((x) => own.has(x.t) && x.o >= TEXT_ALPHA));
+      const same = (a, b) => a.length === b.length
+        && a.every((x, i) => x.t === b[i].t && Math.abs(x.o - b[i].o) <= REST_SAME && Math.abs(x.y - b[i].y) <= 1);
+      let look = restLook(sec), settled = true;
+      const t0 = pnow();
+      if (restless(look)) {
+        settled = false;
+        while (pnow() - t0 < ms) {
+          await new Promise((r) => setTimeout(r, REST_LOOK_MS));
+          await late(S.afterFrames(1), REST_FRAME_MS);
+          ended += endStoryAnimations();
+          const next = restLook(sec);
+          const agree = same(look, next);
+          look = next;
+          if (agree) { settled = true; break; }
+        }
+      }
+      return done({ ended, waited_ms: Math.round(pnow() - t0), settled, ms: Math.round(pnow() - start) });
+    } catch (e) { return done({ why: say(e) }); }
+  };
+
+  // A CSS colour as [r, g, b, a] (sRGB, 0..255 and 0..1), or null. Chromium gives rgb() or rgba() for most computed
+  // colours and keeps color(), oklch() and the like as written (a theme's tokens may well be written so): those are
+  // painted on one pixel of a 2D canvas and read back. A string the canvas does not take leaves its fill as it was,
+  // which is how one that is no colour is told (set after black and after white, it reads the same only if taken).
+  let colourCtx = null;
+  const colourMemo = new Map();
+  const colourOf = (css) => {
+    css = String(css || '').trim();
+    if (colourMemo.has(css)) return colourMemo.get(css);
+    let out = null;
+    const m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/.exec(css);
+    if (m) {
+      const a = m[4] === undefined ? 1 : parseFloat(m[4]) * (m[4].endsWith('%') ? 0.01 : 1);
+      out = [Number(m[1]), Number(m[2]), Number(m[3]), Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 1];
+    } else if (css) {
+      try {
+        if (!colourCtx) {
+          const c = document.createElement('canvas'); c.width = 1; c.height = 1;
+          colourCtx = c.getContext('2d', { willReadFrequently: true });
+        }
+        const g = colourCtx;
+        g.fillStyle = '#000'; g.fillStyle = css;
+        const taken = g.fillStyle;
+        g.fillStyle = '#fff'; g.fillStyle = css;
+        if (g.fillStyle === taken) {
+          g.clearRect(0, 0, 1, 1); g.fillRect(0, 0, 1, 1);
+          const d = g.getImageData(0, 0, 1, 1).data;
+          out = [d[0], d[1], d[2], d[3] / 255];
+        }
+      } catch (e) {}
+    }
+    colourMemo.set(css, out);
+    return out;
+  };
+  // The words of the scene that lie over its picture, for the reading of their contrast (site_check.py,
+  // words_contrast): every drawn text node of the scene's section over the visible part of the largest WebGL canvas,
+  // gathered into runs, a run being the text of one block (a paragraph, a list item, a heading) in one size, weight
+  // and colour, so that a word set in the accent is read against the picture by itself. Per run: its text, the size
+  // it is drawn at (the font size times the block's own scale, for a slide fitted to the frame by a transform),
+  // whether it is bold, its colour and its alpha (the colour's times the chain of opacities), whether it has a shadow
+  // of its own, and where its words are: one box per line of text, the part over the canvas. Text inside an <svg>
+  // (a figure's labels) is drawing, painted with fill, and is not read.
+  const WORD_BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li,figcaption,blockquote,dt,dd,td,th,summary';
+  const WORD_RUNS = 24, WORD_RECTS = 12, WORD_CHARS = 3, WORD_TEXT = 80;
+  const wordsOver = (nodes, el, canvas) => {
+    const c = canvas.getBoundingClientRect();
+    const cx0 = Math.max(0, c.left), cy0 = Math.max(0, c.top);
+    const cx1 = Math.min(innerWidth, c.right), cy1 = Math.min(innerHeight, c.bottom);
+    if (cx1 - cx0 < 2 || cy1 - cy0 < 2) return [];
+    const runs = new Map(), scales = new Map(), range = document.createRange();
+    const r1 = (v) => Math.round(v * 10) / 10;
+    for (const t of nodes) {
+      const p = t.parentElement;
+      if (p.closest('svg')) continue;
+      const block = p.closest(WORD_BLOCKS) || p;
+      const cs = getComputedStyle(p);
+      const col = colourOf(cs.webkitTextFillColor) || colourOf(cs.color);
+      if (!col) continue;
+      if (!scales.has(block)) {
+        // the block's box as drawn over its box as laid out: the same both ways under a scale, not under a turn
+        const b = block.getBoundingClientRect();
+        const kw = block.offsetWidth > 0 ? b.width / block.offsetWidth : 1, kh = block.offsetHeight > 0 ? b.height / block.offsetHeight : 1;
+        scales.set(block, kw > 0.1 && kw < 10 && Math.abs(kw - kh) <= 0.1 * Math.max(kw, kh) ? (kw + kh) / 2 : 1);
+      }
+      const px = r1((parseFloat(cs.fontSize) || 0) * scales.get(block));
+      const alpha = Math.round(col[3] * chainOpacity(p) * 100) / 100;
+      if (!(px > 0) || alpha < 0.05) continue;  // a fill that is not drawn (type clipped to a gradient): nothing to read
+      const bold = (parseInt(cs.fontWeight, 10) || 400) >= 700;
+      let per = runs.get(block);
+      if (!per) { per = new Map(); runs.set(block, per); }
+      const key = [px, bold, col[0], col[1], col[2], alpha].join('|');
+      let run = per.get(key);
+      if (!run) {
+        run = { block, nodes: new Set(), chars: 0, px, bold, colour: [col[0], col[1], col[2]], alpha, shadow: false,
+                own: !!(el && el.contains(p)), rects: [] };
+        per.set(key, run);
+      }
+      run.nodes.add(t);
+      run.chars += t.data.replace(/\s+/g, '').length;
+      if (cs.textShadow && cs.textShadow !== 'none') run.shadow = true;
+      range.selectNodeContents(t);
+      for (const b of range.getClientRects()) {
+        const x0 = Math.max(b.left, cx0), y0 = Math.max(b.top, cy0), x1 = Math.min(b.right, cx1), y1 = Math.min(b.bottom, cy1);
+        if (x1 - x0 < 1 || y1 - y0 < 1) continue;
+        // one box per line of the run: a letter, a word or a wrapped piece joins the box it shares a line with
+        const line = run.rects.find((q) => Math.min(q[3], y1) - Math.max(q[1], y0) > 0.5 * Math.min(q[3] - q[1], y1 - y0));
+        if (line) { line[0] = Math.min(line[0], x0); line[1] = Math.min(line[1], y0); line[2] = Math.max(line[2], x1); line[3] = Math.max(line[3], y1); }
+        else run.rects.push([x0, y0, x1, y1]);
+      }
+    }
+    const out = [];
+    for (const per of runs.values()) for (const run of per.values()) {
+      if (out.length >= WORD_RUNS) break;
+      if (run.chars < WORD_CHARS || !run.rects.length) continue;
+      // the run's words as the block spells them: its own text nodes, and the spaces between them
+      let text = '';
+      const w = document.createTreeWalker(run.block, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        if (run.nodes.has(n)) text += n.data;
+        else if (!n.data.trim() && text && !text.endsWith(' ')) text += ' ';
+      }
+      out.push({ text: text.replace(/\s+/g, ' ').trim().slice(0, WORD_TEXT), chars: run.chars, own: run.own, px: run.px,
+                 bold: run.bold, colour: run.colour, alpha: run.alpha, shadow: run.shadow,
+                 rects: run.rects.slice(0, WORD_RECTS).map((q) => q.map(r1)) });
+    }
+    return out;
+  };
+  // The page as it is but for the fill of its letters (site_check.py, _Visitor.words): what is drawn behind the
+  // words, photographed. The canvas alone would not do: a scrim or a card under the words, a halo round them
+  // (text-shadow), a picture dimmed by a CSS filter are all between the canvas and the words, and a reading that
+  // missed one would send the agent after a fault no viewer sees. mode 1 leaves the fill out; mode 2 the words'
+  // shadows as well (a glow in the words' own colour lies densest under their strokes and would read as a bright
+  // ground; a shadow is counted where it helps and never against the words, and the second photograph is taken only
+  // where a line with a shadow reads under its bar in the first); 0 puts everything back. One rule in a
+  // style of its own, so nothing of the page's DOM is touched. -webkit-text-fill-color and text-shadow can be
+  // animated: on a page with `transition: all` on its text the fill would fade out over the transition's time and the
+  // photograph, taken at once, would still hold the letters; those transitions are ended as they start, both ways.
+  // A photograph taken straight after shows the change (measured on the example film: the same picture at once and
+  // two frames later), so no frame of the page is waited for.
+  let wordsStyle = null;
+  S.wordsOff = (mode) => {
+    try {
+      if (!wordsStyle && !mode) return false;  // nothing to put back: the page's own transitions are left alone
+      if (wordsStyle) { wordsStyle.remove(); wordsStyle = null; }
+      if (mode) {
+        wordsStyle = document.createElement('style');
+        wordsStyle.dataset.agySite = 'words-off';
+        wordsStyle.textContent = '*{-webkit-text-fill-color:transparent!important' + (mode === 2 ? ';text-shadow:none!important' : '') + '}';
+        (document.head || document.documentElement).appendChild(wordsStyle);
+      }
+      for (const a of document.getAnimations()) {  // getAnimations() takes the style change in first
+        if (a instanceof CSSTransition && (a.transitionProperty === '-webkit-text-fill-color' || a.transitionProperty === 'text-shadow')) {
+          try { a.finish(); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    return !!wordsStyle;
+  };
+  // What the HTML says of the beat the story shows, and whether the scene's text fits where it is shown: every
+  // visible line box inside the window and inside each ancestor that clips (overflow other than visible), none of
+  // those scrolling over its height, and a headline over the picture (data-place="over") inside the picture's box.
+  // The scene's text is all of its section that is drawn: under a caption the heading and the beat's own lines, on a
+  // slide the heading and every beat shown so far, since a slide that grows a line can push its first one out of the
+  // frame. `words` are the lines over the picture (wordsOver).
+  // `shown` is about the beat's own lines (on a slide, the ones this beat adds): whether any of them is drawn with a
+  // box a viewer can see, at half the chain of opacities or more (rendered). A story whose lines are in info().lines
+  // and in the HTML and are not shown where the beat is (a rule that hides the caption, an entrance that never ran
+  // and left the lines at opacity 0) would otherwise be told that nothing is wrong with it. Where none is shown,
+  // `faint` says how near they came: the fullest opacity of the lines that are laid out with a box, or null when none
+  // is (display: none, visibility: hidden, a box without size).
   S.filmBeat = (id, beat) => {
     try {
       opacityOf.clear();
@@ -793,36 +1014,52 @@
       const over = el.getAttribute('data-place') === 'over';
       const out = { section: true, found: true, silent: el.hasAttribute('data-silent'), over,
                     text: nodes.map((t) => t.data).join(' ').replace(/\s+/g, ' ').trim().slice(0, LINE_CHARS),
-                    shown: false, boxes: 0, outside: 0, scrolls: null };
-      const shownNodes = nodes.filter((t) => rendered(t.parentElement));
-      if (!shownNodes.length) return out;
-      out.shown = true;
-      let area = { l: 0, t: 0, r: innerWidth, b: innerHeight };
-      const clip = (b) => { area = { l: Math.max(area.l, b.left), t: Math.max(area.t, b.top), r: Math.min(area.r, b.right), b: Math.min(area.b, b.bottom) }; };
-      const boxOf = (e) => e.getBoundingClientRect();
+                    shown: false, faint: null, boxes: 0, outside: 0, scrolls: null, words: [], win: [innerWidth, innerHeight] };
+      const drawn = lineNodes(sec).filter((t) => rendered(t.parentElement));
+      const own = new Set(nodes);
+      const range = document.createRange();
+      const sized = (t) => { range.selectNodeContents(t); return [...range.getClientRects()].some((b) => b.width >= 1 && b.height >= 1); };
+      out.shown = drawn.some((t) => own.has(t) && sized(t));
+      if (!out.shown) {
+        for (const t of nodes) {
+          const p = t.parentElement;
+          if (!p.getClientRects().length || getComputedStyle(p).visibility !== 'visible' || !sized(t)) continue;
+          out.faint = Math.max(out.faint === null ? 0 : out.faint, Math.round(chainOpacity(p) * 100) / 100);
+        }
+      }
+      if (!drawn.length) return out;
       // up the chain of containing blocks only: a fixed element is clipped by nothing above it, an absolute one only
       // by a positioned ancestor, and the overflow of <body> and <html> belongs to the window (first test film: its
       // body, overflow hidden and 20 px tall above a fixed caption area, would have cut every line)
       const body = document.body, root = document.documentElement;
-      for (let e = shownNodes[0].parentElement; e && e !== body && e !== root;) {
-        const cs = getComputedStyle(e);
-        if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
-          clip(boxOf(e));
-          if (!out.scrolls && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)) {
-            out.scrolls = { sel: sel(e), height: e.scrollHeight, box: e.clientHeight };
+      const areas = new Map();
+      const areaOf = (from) => {
+        if (areas.has(from)) return areas.get(from);
+        let area = { l: 0, t: 0, r: innerWidth, b: innerHeight };
+        for (let e = from; e && e !== body && e !== root;) {
+          const cs = getComputedStyle(e);
+          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+            const b = e.getBoundingClientRect();
+            area = { l: Math.max(area.l, b.left), t: Math.max(area.t, b.top), r: Math.min(area.r, b.right), b: Math.min(area.b, b.bottom) };
+            if (!out.scrolls && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)) {
+              out.scrolls = { sel: sel(e), height: e.scrollHeight, box: e.clientHeight };
+            }
           }
+          if (cs.position === 'fixed') break;
+          let next = e.parentElement;
+          if (cs.position === 'absolute') while (next && next !== body && getComputedStyle(next).position === 'static') next = next.parentElement;
+          e = next;
         }
-        if (cs.position === 'fixed') break;
-        let next = e.parentElement;
-        if (cs.position === 'absolute') while (next && next !== body && getComputedStyle(next).position === 'static') next = next.parentElement;
-        e = next;
-      }
-      if (over) {
-        const pic = document.getElementById('picture') || refCanvas();
-        if (pic) clip(boxOf(pic));
-      }
-      const range = document.createRange();
-      for (const t of shownNodes) {
+        areas.set(from, area);
+        return area;
+      };
+      const pic = over ? (document.getElementById('picture') || refCanvas()) : null;
+      const picBox = pic ? pic.getBoundingClientRect() : null;
+      for (const t of drawn) {
+        let area = areaOf(t.parentElement);
+        if (picBox && own.has(t)) {
+          area = { l: Math.max(area.l, picBox.left), t: Math.max(area.t, picBox.top), r: Math.min(area.r, picBox.right), b: Math.min(area.b, picBox.bottom) };
+        }
         range.selectNodeContents(t);
         for (const b of range.getClientRects()) {
           if (b.width < 1 || b.height < 1) continue;
@@ -830,6 +1067,8 @@
           if (b.left < area.l - 1 || b.right > area.r + 1 || b.top < area.t - 1 || b.bottom > area.b + 1) out.outside++;
         }
       }
+      const canvas = refCanvas();
+      if (canvas) { try { out.words = wordsOver(drawn, el, canvas); } catch (e) { out.words = []; } }
       return out;
     } catch (e) { return { found: false, why: say(e) }; }
   };

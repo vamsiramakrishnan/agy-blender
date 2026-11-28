@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import time
 import urllib.error
@@ -1842,6 +1843,7 @@ def test_reduce_motion_is_said_to_glide_by_how_long_the_picture_went_on_changing
 #   'same'    the second beat of 'tower' draws what its first does;
 #   'empty'   the first beat of 'tower' draws nothing but the background;
 #   'noline'  the first beat of 'sea' has no <p> (only its note); 'silent' the same, marked data-silent;
+#   'hidden'  the first beat of 'sea' has its line in the HTML and in info().lines, with display: none on it;
 #   'hang'    go('tower', 1) never resolves;
 #   'still'   scene 'sea' ignores p and t: nothing moves while its beats play;
 #   'overflow' the first beat of 'sea' holds two lines too long for the caption area, which scrolls;
@@ -1987,6 +1989,8 @@ def _film(tmp_path: Path, fault: str = "none") -> Path:
     beat = '<div data-beat><p>A boat answers from the dark.</p><aside data-notes>'
     if fault in ("noline", "silent"):
         page = page.replace(beat, f"<div data-beat{' data-silent' if fault == 'silent' else ''}><aside data-notes>")
+    if fault == "hidden":
+        page = page.replace(beat, beat.replace("<p>", '<p style="display:none">'))
     if fault == "overflow":
         long = ("The boat came in under oars through the last of the dark, and the man in it kept his eyes on the light "
                 "the whole way {}.")
@@ -2031,35 +2035,55 @@ def test_a_well_made_film_is_checked_beat_by_beat_and_nothing_is_wrong(tmp_path)
     assert d.film["hash"]["got"] == d.film["hash"]["want"] == "#tower-2"
     assert r.film["ready"]["state"] == "resolved" and 0 < r.film["ready"]["s"] < 30
     # the heaviest frame has 2 draw calls: go() draws its block in its own task, the page's loop once more that frame
-    for part in ("- Film: 'Lamp', treatment 'grade', 3 scenes and 5 beats; ready ", "- Desktop 1440x900: 5 of 5 beats "
+    for part in ("- Story: 'Lamp', treatment 'grade', 3 scenes and 5 beats; ready ", "- Desktop 1440x900: 5 of 5 beats "
                  "photographed", "- Phone 390x844: 5 of 5 beats photographed", "per beat: dawn ", "- Motion while a beat "
-                 "plays", "- The right arrow key goes from #dawn-1 to #tower-1.", "- Opened at #tower-2, the film shows",
+                 "plays (desktop, at each scene's last beat; ", "- The right arrow key goes from #dawn-1 to #tower-1.",
+                 "- Opened at #tower-2, the story shows",
                  "- Downloaded (desktop, all beats): ", "- Scene (desktop, the heaviest beat): 2 draw calls and 4 "
                  "triangles in one frame", "- With reduce motion set the page asks matchMedia; beat #tower-2, reached "
                  "with advance(), is shown finished at once", "- Without WebGL: no errors; window.__story.mode is "
                  "'no-webgl'", "5 of the 5 beats with lines show them as text", "- desktop contact sheet, one tile per "
                  "beat: "):
         assert part in text, (part, text)
+    # a deck is the common story, so the answer speaks of a story (the folders named under Pictures are the test's)
+    assert not re.search(r"\b[Ff]ilms?\b", text.split("\nPictures:")[0]), text
+    # the film's captions lie under its picture; its one headline over it (36 px, light on the dark ground) is read
+    for name in ("desktop", "phone"):
+        over = [(b.scene, b.beat, [w["text"] for w in b.words]) for b in r.visits[name].beats if b.words]
+        assert over == [("tower", 1, ["Then it turns."])], over
+        (w,) = r.visits[name].beats[2].words
+        assert w["px"] == 36 and w["need"] == 3 and w["ratio"] > 12 and w["light"] and w["own"], w
+    assert ("- Words over the picture, their contrast with what is drawn behind them (WCAG's ratio; 3 for type of 24 px "
+            "and up or bold of 19 px and up, 4.5 for smaller type): desktop 1 line, the nearest to its bar 'Then it "
+            "turns.' at ") in text and "Beats that change only the words" not in text
     record = json.loads((tmp_path / "out" / "report.json").read_text())
     assert len(record["visits"]["desktop"]["beats"]) == 5 and record["film"]["total"] == 5
 
 
 _FILM_FAULTS = {
     # fault: (broken or noticed, the start of the one line the answer gives for it)
-    "same": (False, "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0% of the picture differs)"),
+    # the film says nothing of a layout: its words are captions, and a beat that changes only its caption is a fault
+    "same": (False, "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0% of the picture differs) and "
+                    "only its caption changes: under a caption a beat must change something the viewer can see"),
     "empty": (True, "Desktop: the picture shows nothing at #tower-1: under 1% of it differs from its commonest colour"),
     "noline": (True, "Beat #sea-1 has no line: info().lines is empty there and its <div data-beat> is not marked "
                      "data-silent."),
+    # the line is in the HTML and in info().lines; the page does not display it (the same beat without a line and
+    # marked silent is not named: test_a_beat_marked_silent_needs_no_line)
+    "hidden": (False, "Desktop: the words of beat #sea-1 are in the page and are not shown there: none of its lines is "
+                      "drawn (display: none, visibility: hidden or a box without size). The viewer gets the picture "
+                      "without its words. Show a beat's lines while it is the current beat, or mark its <div data-beat> "
+                      "data-silent where it is meant to have none. Look at desktop_b03.jpg."),
     "hang": (True, "window.__story.go('tower', 1, { settle: true }) did not answer within 8 s (desktop): beat #tower-2 "
                    "was not photographed."),
     "still": (False, "Scene 'sea' stands still: at its last beat (#sea-2) the picture at progress 0.3 and at 1 is the "
                      "same"),
     "overflow": (False, "Desktop: the caption of beat #sea-1 does not fit: article#story scrolls"),
-    "nokey": (False, "The right arrow key does not advance: pressed at #dawn-1, the film stayed there (the next beat is "
+    "nokey": (False, "The right arrow key does not advance: pressed at #dawn-1, the story stayed there (the next beat is "
                      "#tower-1)."),
-    "nohash": (False, "The hash does not open its beat: opened at #tower-2, the film showed #dawn-1 once ready."),
+    "nohash": (False, "The hash does not open its beat: opened at #tower-2, the story showed #dawn-1 once ready."),
     "foreign": (True, "Beat #dawn-1 shows a line the page's HTML does not hold: 'Before light, the sea is one gray.'"),
-    "members": (True, "window.__story lacks play and setAuto: the check steps the film through that hook"),
+    "members": (True, "window.__story lacks play and setAuto: the check steps the story through that hook"),
 }
 
 
@@ -2079,8 +2103,11 @@ def test_one_fault_in_a_film_is_named_and_nothing_else(tmp_path, fault):
 
 @pytest.mark.browser
 def test_a_beat_marked_silent_needs_no_line(tmp_path):
+    """... and shows none: a silent beat is neither a beat without a line nor one whose words are not shown."""
     r = _film_check(tmp_path, "silent")
     assert r.broken() == [] and r.noticed() == [], r.text()
+    silent = r.visits["desktop"].beats[3]
+    assert silent.html["silent"] and not silent.html["shown"] and not silent.lines and not sc.words_unseen(silent)
 
 
 @pytest.mark.browser
@@ -2142,7 +2169,7 @@ def test_the_film_findings_and_their_words(tmp_path):
                      ("key", False), ("hash", False)], kinds
     broken, noticed = rep.broken(), rep.noticed()
     assert broken == [
-        "window.__story lacks play and setAuto: the check steps the film through that hook (its members are ready, "
+        "window.__story lacks play and setAuto: the check steps the story through that hook (its members are ready, "
         "mode, title, treatment, scenes, go, play, at, advance, back, setAuto, info), and what it cannot call goes "
         "unchecked. Give the hook every member.",
         "window.__story.at('tower', 1, 0.3, 1) did not answer within 8 s (desktop): whether scene 'tower' moves was not "
@@ -2156,9 +2183,10 @@ def test_the_film_findings_and_their_words(tmp_path):
         "is the HTML, which a browser without WebGL shows and this check compares: put the line in that beat's <div "
         "data-beat>, or show the one that is there."], broken
     assert noticed == [
-        "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0.02% of the picture differs): a beat "
-        "must change something the viewer can see (a camera move, an object, the light). Look at desktop_b01.jpg and "
-        "desktop_b02.jpg.",
+        "Desktop: beat #tower-2 shows the same picture as #tower-1 before it (0.02% of the picture differs) and only "
+        "its caption changes: under a caption a beat must change something the viewer can see in the picture (a camera "
+        "move, an object, the light). A beat that only adds words belongs on a slide (a scene whose info().layout is "
+        "not 'caption'). Look at desktop_b01.jpg and desktop_b02.jpg.",
         "Scene 'sea' stands still: at its last beat (#sea-2) the picture at progress 0.3 and at 1 is the same, and so "
         "is the picture at ambient time 1 s and 3 s (0% and 0% of it differs). Give each beat one slow camera move or "
         "one event, and the scene a little ambient life (a flicker, rain, a turning light).",
@@ -2169,15 +2197,336 @@ def test_the_film_findings_and_their_words(tmp_path):
         "Phone: the picture is nearly one tone at #sea-2 (5% of it shows something, against 30% on the desktop): the "
         "framing at this size has lost the subject. Frame it for this shape of picture (kit.fit takes a field of view "
         "for portrait and one for landscape). Look at phone_b04.jpg.",
-        "The right arrow key does not advance: pressed at #dawn-1, the film stayed there (the next beat is #tower-1). "
+        "The right arrow key does not advance: pressed at #dawn-1, the story stayed there (the next beat is #tower-1). "
         "Listen for ArrowRight on window and call advance(), as the contract's keys say.",
-        "The hash does not open its beat: opened at #tower-2, the film did not say which beat it showed (info() gave "
-        "no scene and beat) once ready. Read location.hash once the film is ready, and on hashchange, and go to that "
+        "The hash does not open its beat: opened at #tower-2, the story did not say which beat it showed (info() gave "
+        "no scene and beat) once ready. Read location.hash once the story is ready, and on hashchange, and go to that "
         "beat."], noticed
     text = rep.text()
     assert text.startswith("STORY CHECKED in 20 s: 5 things broken, 7 things a viewer would notice.")
     heads = [text.splitlines().index(h) for h in ("Broken:", "A viewer would notice:", "Measures:", "Pictures:")]
     assert heads == sorted(heads)
+
+
+def test_a_beat_that_only_adds_words_is_a_measure_on_a_slide_and_a_finding_under_a_caption(tmp_path):
+    rep = _film_report(tmp_path)
+    d, p = rep.visits["desktop"], rep.visits["phone"]
+    for v in (d, p):
+        for b in v.beats[1:3]:
+            b.info = {"layout": "statement"}                       # 'tower' is a slide; the others say nothing: captions
+        v.beats[2].change = 0.0                                    # #tower-2: the slide gains "Line 2.", its picture holds
+    assert [(b.scene, b.beat, what) for b, _, what in sc.same_picture(d)] == [("tower", 1, "words")]
+    assert sc.film_findings(rep) == [] and rep.noticed() == []
+    text = rep.text()
+    assert ("\n- Beats that change only the words (a slide gains a line and its picture holds, which a deck may do): "
+            "#tower-2.\n") in text and text.startswith("STORY CHECKED in 20 s: nothing broken, 0 things")
+    assert sc.film_flags(d.beats[2], "words") == []                # nothing in red under its tile
+    p.beats[2].change = 0.3                                        # the phone's picture changes there
+    assert "may do): #tower-2 (desktop only).\n" in rep.text()
+    # the same under a caption: only the caption changes, which a film must not do
+    d.beats[4].change = 0.0001
+    assert [(f["kind"], f["size"], sc._beat_name(f["beat"])) for f in sc.film_findings(rep)] == [("same", "desktop", "#sea-2")]
+    assert sc.film_flags(d.beats[4], "caption") == ["same"]
+    # ... and the lines of the beat before, shown again, are no new words
+    d.beats[4].lines = list(d.beats[3].lines)
+    assert [f["kind"] for f in sc.film_findings(rep)] == ["nothing"]
+    d.beats[4].change = 0.2
+    # a slide's beat without words under a picture that holds changes nothing: a fault in every layout
+    for v in (d, p):
+        v.beats[2].lines, v.beats[2].change = [], 0.0
+        v.beats[2].html = {**v.beats[2].html, "silent": True}
+    assert [(f["kind"], f["size"]) for f in sc.film_findings(rep)] == [("nothing", "desktop"), ("nothing", "phone")]
+    assert rep.noticed()[0] == (
+        "Desktop: beat #tower-2 changes nothing: it shows the same picture as #tower-1 before it (0% of the picture "
+        "differs) and no new words. A beat must change something the viewer can see: the picture (a camera move, an "
+        "object, the light) or, on a slide, the words. Look at desktop_b01.jpg and desktop_b02.jpg.")
+    assert "Beats that change only the words" not in rep.text() and sc.film_flags(d.beats[2], "nothing") == ["no change"]
+
+
+def test_a_beat_whose_words_are_in_the_page_and_are_not_shown_is_named(tmp_path):
+    """A story's lines can be in info().lines and in the HTML and still not be on the screen at their beat: a rule
+    that hides the caption, an entrance that never ran. The fit of the text says nothing of lines that are not drawn,
+    so without this a story could hide every caption and be told that nothing is wrong."""
+    rep = _film_report(tmp_path)
+    d, p = rep.visits["desktop"], rep.visits["phone"]
+
+    def hide(b: sc.Beat, faint: float | None = None, **more) -> None:
+        b.html = {**b.html, "shown": False, "faint": faint, **more}
+
+    hide(d.beats[3])
+    hide(p.beats[3])
+    assert [(f["kind"], f["broken"], f["sizes"], [sc._beat_name(b) for b in f["beats"]]) for f in sc.film_findings(rep)] == [
+        ("unseen", False, ["desktop", "phone"], ["#sea-1"])]            # the same beat at both sizes: said once
+    assert rep.broken() == [] and rep.noticed() == [
+        "Desktop and phone: the words of beat #sea-1 are in the page and are not shown there: none of its lines is "
+        "drawn (display: none, visibility: hidden or a box without size). The viewer gets the picture without its "
+        "words. Show a beat's lines while it is the current beat, or mark its <div data-beat> data-silent where it is "
+        "meant to have none. Look at desktop_b03.jpg."]
+    assert sc.film_flags(d.beats[3]) == ["words not shown"] and sc.film_flags(d.beats[2]) == []
+    # lines drawn too faint to read count as not shown; the sizes differ now, so each says its own
+    hide(p.beats[1], faint=0.2)
+    assert rep.noticed() == [
+        "Desktop: the words of beat #sea-1 are in the page and are not shown there: none of its lines is drawn "
+        "(display: none, visibility: hidden or a box without size). The viewer gets the picture without its words. "
+        "Show a beat's lines while it is the current beat, or mark its <div data-beat> data-silent where it is meant "
+        "to have none. Look at desktop_b03.jpg.",
+        "Phone: the words of beats #tower-1 and #sea-1 are in the page and are not shown there: none of their lines "
+        "is drawn where a viewer can read it (display: none, visibility: hidden, a box without size, or under half "
+        "its opacity). The viewer gets the picture without its words. Show a beat's lines while it is the current "
+        "beat, or mark its <div data-beat> data-silent where it is meant to have none. Look at phone_b01.jpg."]
+    hide(d.beats[3], faint=0.2)
+    p.beats[3].html = {**p.beats[3].html, "shown": True}
+    p.beats[1].html = {**p.beats[1].html, "shown": True}
+    assert rep.noticed()[0].startswith("Desktop: the words of beat #sea-1 are in the page and are not shown there: its "
+                                       "lines are drawn at 20% opacity (under half its opacity a line is not counted as "
+                                       "shown). The viewer gets")
+    # read while still coming in (an entrance that go(..., { settle: true }) did not cut short, and longer than the wait)
+    hide(d.beats[3], faint=0.2, rest={"ended": 0, "waited_ms": 1510, "settled": False})
+    assert rep.noticed()[0].endswith("where it is meant to have none. The text was still changing when it was read: "
+                                     "go(id, beat, { settle: true }) is to show a beat's lines whole at once. Look at "
+                                     "desktop_b03.jpg.")
+    hide(d.beats[3], faint=0.2, rest={"ended": 0, "waited_ms": 0, "settled": True})
+    # not named: a beat marked silent; a beat with no line at all (that is named as a beat without a line); a beat the
+    # page gave no answer for; a beat whose element the HTML does not have
+    hide(d.beats[3], silent=True)
+    assert rep.noticed() == []
+    hide(d.beats[3], silent=False)
+    d.beats[3].lines = p.beats[3].lines = []
+    assert rep.noticed() == [] and [f["kind"] for f in sc.film_findings(rep)] == ["no_line"]
+    d.beats[3].lines = p.beats[3].lines = ["Line 3."]
+    d.beats[3].html = None
+    assert sc.film_findings(rep) == []
+    d.beats[3].html = {"section": True, "found": False}
+    assert sc.film_findings(rep) == []
+    # on a slide the beats before stay up: the words judged are the ones this beat adds (shown is about those)
+    for v in (d, p):
+        for b in v.beats[1:3]:
+            b.info = {"layout": "statement"}
+        hide(v.beats[2])
+    assert [(f["kind"], f["sizes"], [sc._beat_name(b) for b in f["beats"]]) for f in sc.film_findings(rep)] == [
+        ("unseen", ["desktop", "phone"], ["#tower-2"])]
+
+
+def test_a_page_too_busy_to_say_where_it_is_says_nothing_about_its_key_or_its_hash(tmp_path):
+    """A deck of 13 beats drawn in software beside three other visits was ready, opened its hash's beat, and then
+    gave no answer to info() in the three seconds a read has. The answer said the hash did not open its beat. No
+    answer is no word about the story: it is a measure (not read), not a finding."""
+    rep = _film_report(tmp_path)
+    d = rep.visits["desktop"]
+    d.film["hash"] = {"want": "#tower-2", "got": "", "why": sc.UNANSWERED, "unread": sc.UNANSWERED}
+    d.film["key"] = {"from": "#dawn-1", "want": "#tower-1", "got": "", "why": sc.UNANSWERED, "unread": sc.UNANSWERED}
+    assert sc.film_findings(rep) == [] and rep.noticed() == []
+    text = rep.text()
+    assert ("\n- The right arrow key, pressed at #dawn-1: whether it advances was not read (the page did not answer in "
+            "time: it was busy drawing, which takes long in this browser).\n") in text
+    assert ("\n- Opened at #tower-2: whether the hash opens its beat was not read (the page did not answer in time: the "
+            "page was loaded a second time, and drawing takes long in this browser).\n") in text
+    assert "goes from #dawn-1" not in text and "the story shows that beat" not in text
+    # ready that did not come on the second load, likewise
+    d.film["hash"] = {"want": "#tower-2", "got": "", "why": "", "unread": "the story was not ready 30 s after that load"}
+    assert rep.noticed() == [] and "was not read (the story was not ready 30 s after that load: " in rep.text()
+    # a story that answers and is somewhere else, or says nothing of where it is, is named as before
+    d.film["hash"] = {"want": "#tower-2", "got": "#dawn-1", "why": ""}
+    d.film["key"] = {"from": "#dawn-1", "want": "#tower-1", "got": "", "why": "info() gave no scene and beat"}
+    assert [f["kind"] for f in sc.film_findings(rep)] == ["key", "hash"]
+
+
+def test_the_scene_is_said_to_stand_still_at_the_beat_it_was_read_at(tmp_path):
+    rep = _film_report(tmp_path)
+    d = rep.visits["desktop"]
+    d.film["moves"][1] = {"scene": "tower", "beat": "#tower-1", "last": False, "p": 0.0, "t": 0.0}
+    assert rep.noticed() == [
+        "Scene 'tower' stands still: at #tower-1, the last of its beats that changes the picture, the picture at "
+        "progress 0.3 and at 1 is the same, and so is the picture at ambient time 1 s and 3 s (0% and 0% of it "
+        "differs). Give each beat one slow camera move or one event, and the scene a little ambient life (a flicker, "
+        "rain, a turning light)."]
+    d.film["moves"][1].update(p=0.2, t=0.1)
+    assert "- Motion while a beat plays (desktop, at each scene's last beat that changes its picture; share" in rep.text()
+
+
+def test_the_first_measure_names_the_form_and_the_theme_where_the_hook_gives_them(tmp_path):
+    rep = _film_report(tmp_path)
+    first = lambda: rep.text().split("Measures:\n")[1].splitlines()[0]  # noqa: E731
+    assert first() == "- Story: 'Lamp', treatment 'grade', 3 scenes and 5 beats; ready 1.2 s after the page was asked for (desktop)."
+    rep.film.update(form="deck", theme="paper")
+    assert first() == ("- Story: 'Lamp', a deck in the theme 'paper', treatment 'grade', 3 scenes and 5 beats; ready 1.2 s "
+                       "after the page was asked for (desktop).")
+    rep.film.update(form="film", theme=None)
+    assert first().startswith("- Story: 'Lamp', a film, treatment 'grade', ")
+    rep.film.update(form=None, theme="ink")
+    assert first().startswith("- Story: 'Lamp', theme 'ink', treatment 'grade', ")
+    rep.film.update(form="zine", theme="ink")                      # a form the contract does not name: as the page says it
+    assert first().startswith("- Story: 'Lamp', form 'zine' in the theme 'ink', treatment 'grade', ")
+    # info() as the page gives it: the three as short strings, or None
+    info = sc._film_info({"scene": "a", "beat": 0, "lines": ["x"], "layout": "statement", "form": "deck", "theme": " paper "})
+    assert (info["layout"], info["form"], info["theme"]) == ("statement", "deck", "paper")
+    info = sc._film_info({"scene": "a", "beat": 0, "lines": [], "layout": "", "form": 7, "theme": None})
+    assert (info["layout"], info["form"], info["theme"]) == (None, None, None)
+
+
+def _window(ground: tuple[int, int, int], size: tuple[int, int] = (800, 300)) -> np.ndarray:
+    return np.full((size[1], size[0], 3), ground, dtype=np.uint8)
+
+
+def _run(px: float = 44.0, colour: tuple[int, int, int] = (244, 241, 232), rect=(100, 100, 700, 152), **kw) -> dict:
+    return {"text": "It looks like nothing at all.", "own": True, "px": px, "bold": False, "colour": list(colour),
+            "alpha": 1.0, "shadow": False, "rects": [list(rect)], **kw}
+
+
+def test_words_are_read_against_what_is_drawn_behind_them():
+    dark, bright, ink = (13, 16, 20), (237, 230, 217), (244, 241, 232)
+    read = lambda a, run, **kw: sc.words_contrast(_png(a), [run], (a.shape[1], a.shape[0]), **kw)[0]  # noqa: E731
+    w = read(_window(dark), _run())
+    assert 16.5 < w["ratio"] < 17.5 and w["light"] and w["need"] == 3.0 and w["px"] == 44 and w["own"]
+    assert w["cells"] == (600 // 11) * (52 // 11)                  # squares of a quarter of the type's size: 11 px
+    assert read(_window(bright), _run())["ratio"] < 1.2            # the same words on a ground near their own tone
+    # a bright patch under two fifths of the line: the line is hard to read, whatever the rest of it stands on
+    a = _window(dark)
+    a[90:160, 460:700] = bright
+    assert read(a, _run())["ratio"] < 1.2
+    # the tenth of the squares with the least contrast is left out: a speck under a twelfth of the line is not the line
+    a = _window(dark)
+    a[90:160, 650:700] = bright
+    assert read(a, _run())["ratio"] > 16
+    a[90:160, 600:700] = bright                                    # a sixth of it
+    assert read(a, _run())["ratio"] < 1.2
+    # dark words on a light ground, and what to move them to
+    w = read(_window(bright), _run(colour=(20, 20, 30)))
+    assert w["ratio"] > 12 and not w["light"]
+    # words drawn part see-through are compared as they are seen: half the ink over the dark ground
+    half = read(_window(dark), _run(alpha=0.5))
+    assert 4.3 < half["ratio"] < 5.5, half
+    # a photograph at two device pixels to the CSS pixel reads the same
+    big = sc.words_contrast(_png(_window(dark, (1600, 600))), [_run()], (800, 300))[0]
+    assert abs(big["ratio"] - read(_window(dark), _run())["ratio"]) < 0.01 and big["cells"] == w["cells"]
+    # a line with no picture under it (its box outside the photograph) is left out, and so is one without a box
+    assert sc.words_contrast(_png(_window(dark)), [_run(rect=(900, 100, 1200, 150)), _run(rects=[])], (800, 300)) == []
+
+
+def test_a_picture_printed_in_dots_is_a_tone_under_large_type_and_dots_under_small():
+    """Two of the story engine's three treatments print in two inks. Every pixel is then paper or ink, and words in
+    the ink's colour would read 1.0 against any picture whose dots cover a tenth of it: the squares are why not."""
+    paper, ink = (11, 15, 23), (239, 228, 203)
+    a = _window(paper, (800, 300))
+    yy, xx = np.mgrid[0:300, 0:800]
+    a[((yy % 6) < 3) & ((xx % 6) < 3)] = ink                        # dots of 3 px, 6 px apart: a quarter of the paper
+    read = lambda px: sc.words_contrast(_png(a), [_run(px=px, colour=ink, rect=(102, 102, 702, 150))],  # noqa: E731
+                                        (800, 300))[0]["ratio"]
+    large, small = read(48.0), read(12.0)
+    # 48 px type: squares of 12 px hold four dots each and read the tone, (0.78 + 0.05) / (0.25 * 0.78 + 0.05)
+    assert 3.2 < large < 3.6, large
+    # 12 px type: squares of 3 px are a dot or the paper between two; a quarter of them are the words' own colour
+    assert small < 1.1, small
+    assert sc.words_need(48, False) == 3.0 and sc.words_need(12, False) == 4.5
+
+
+def test_a_shadow_of_the_words_own_counts_for_them_and_never_against_them():
+    dark, ink = (13, 16, 20), (244, 241, 232)
+    glow = _window(dark)
+    glow[95:157, 95:705] = (150, 148, 142)                         # the words' glow, as the window without their fill shows it
+    plain = _window(dark)                                          # ... and without their shadows
+    run = _run(px=15.0, colour=ink, shadow=True)
+    both = sc.words_contrast(_png(glow), [run], (800, 300), _png(plain))[0]
+    alone = sc.words_contrast(_png(glow), [run], (800, 300))[0]
+    assert alone["ratio"] < 3 and both["ratio"] > 16               # the glow is no ground the words must stand out from
+    # a dark halo round light words over a bright picture: with it the line reads, and that is the reading kept
+    halo, bare = _window((60, 62, 66)), _window((237, 230, 217))
+    w = sc.words_contrast(_png(halo), [run], (800, 300), _png(bare))[0]
+    assert 5 < w["ratio"] < 10
+    # a line without a shadow is read from the first photograph alone
+    assert sc.words_contrast(_png(bare), [_run(px=15.0)], (800, 300), _png(halo))[0]["ratio"] < 1.2
+
+
+def test_the_size_of_type_decides_how_much_contrast_it_needs():
+    assert [sc.words_need(px, bold) for px, bold in ((24, False), (23.6, False), (23.4, False), (40, False), (18.7, True),
+                                                     (18.4, True), (19, False), (15, True))] == [3, 3, 4.5, 3, 3, 4.5, 4.5, 4.5]
+    # a ratio is written to one decimal, unless that would put it on the other side of what the type needs
+    assert [sc._ratio(r, 3.0) for r in (1.12, 2.94, 2.96, 3.04, 16.92)] == ["1.1", "2.9", "2.96", "3.0", "16.9"]
+    assert sc._ratio(4.46, 4.5) == "4.46" and sc._ratio(4.44, 4.5) == "4.4"
+    # what the page hands back is checked: numbers in range, a colour of three, boxes with an area, at most 24 runs
+    good = {"text": " A  line ", "own": True, "px": 22, "bold": False, "colour": [1, 2, 3], "alpha": 1, "shadow": True,
+            "rects": [[0, 0, 10, 10], [5, 5, 5, 9], "x", [1, 2, 3]]}
+    assert sc._word_runs([good, {**good, "px": "22"}, {**good, "colour": [1, 2]}, {**good, "alpha": 2},
+                          {**good, "rects": []}, None, 7]) == [
+        {"text": "A line", "own": True, "px": 22.0, "bold": False, "colour": [1.0, 2.0, 3.0], "alpha": 1.0,
+         "shadow": True, "rects": [[0.0, 0.0, 10.0, 10.0]]}]
+    assert len(sc._word_runs([good] * 40)) == 24 and sc._word_runs({"not": "a list"}) == []
+
+
+def _hard(text: str, ratio: float, px: float = 44.0, bold: bool = False, own: bool = True, light: bool = True) -> dict:
+    return {"text": text, "own": own, "px": px, "bold": bold, "ratio": ratio, "need": sc.words_need(px, bold),
+            "light": light, "cells": 100}
+
+
+def test_lines_hard_to_read_are_named_once_each_with_their_beats_and_the_rule_is_said_once(tmp_path):
+    rep = _film_report(tmp_path)
+    d, p = rep.visits["desktop"], rep.visits["phone"]
+    for v in (d, p):
+        for b in v.beats:
+            b.words = []
+    assert rep.words_line() == "" and "Words over the picture" not in rep.text()   # no line lies over the picture
+    line, kicker = "Take an ordinary one: a kilometre long, wide and tall, as clouds go.", "What it looks like"
+    d.beats[1].words = [_hard(kicker, 5.1, 15, True, own=False), _hard(line, 1.31)]
+    d.beats[2].words = [_hard(kicker, 4.2, 15, True, own=False), _hard(line, 1.12, own=False), _hard("500 tonnes.", 14.0)]
+    p.beats[2].words = [_hard("500 tonnes.", 2.94, 27.3, light=False)]
+    kinds = [(f["kind"], f["size"], f["text"], [sc._beat_name(b) for b in f["beats"]]) for f in sc.film_findings(rep)]
+    # in the story's order, a line that stays up through two beats once, with both
+    assert kinds == [("words", "desktop", line, ["#tower-1", "#tower-2"]), ("words", "desktop", kicker, ["#tower-2"]),
+                     ("words", "phone", "500 tonnes.", ["#tower-2"])], kinds
+    assert rep.broken() == [] and rep.noticed() == [
+        # the first says the rule and what to do; a line is named by its first words, cut between two of them
+        "Desktop: 'Take an ordinary one: a kilometre long, wide and tall, as...' is hard to read over the picture at "
+        "#tower-1 and #tower-2: 44 px type at a contrast of 1.1 with what is drawn behind it at worst (#tower-2), where "
+        "it needs 3 (WCAG's ratio; 3 for type of 24 px and up or bold of 19 px and up, 4.5 for smaller type). Move the "
+        "words over a darker or quieter part of the picture, or lay a scrim in the theme's paper behind them. Look at "
+        "desktop_b02.jpg.",
+        "Desktop: 'What it looks like' is hard to read over the picture at #tower-2: 15 px bold type at a contrast of "
+        "4.2, where it needs 4.5. Look at desktop_b02.jpg.",
+        "Phone: '500 tonnes.' is hard to read over the picture at #tower-2: 27 px type at a contrast of 2.9, where it "
+        "needs 3. Look at phone_b02.jpg."], rep.noticed()
+    text = rep.text()
+    # the measure: per size the lines read and the one nearest its bar; the rule was said by the first finding
+    assert ("\n- Words over the picture, their contrast with what is drawn behind them: desktop 3 lines, the nearest to "
+            "its bar 'Take an ordinary one: a kilometre long, wide and...' at 1.1 (#tower-2, 44 px, needs 3); phone 1 "
+            "line, the nearest to its bar '500 tonnes.' at 2.9 (#tower-2, 27 px, needs 3).\n") in text, text
+    assert sc.film_flags(d.beats[2]) == ["hard to read"] and sc.film_flags(d.beats[3]) == []
+    # dark words: the remedy is the lighter part of the picture
+    d.beats[1].words, d.beats[2].words = [], []
+    assert rep.noticed() == [
+        "Phone: '500 tonnes.' is hard to read over the picture at #tower-2: 27 px type at a contrast of 2.9 with what is "
+        "drawn behind it, where it needs 3 (WCAG's ratio; 3 for type of 24 px and up or bold of 19 px and up, 4.5 for "
+        "smaller type). Move the words over a lighter or quieter part of the picture, or lay a scrim in the theme's "
+        "paper behind them. Look at phone_b02.jpg."]
+    # a deck whose ink is wrong for its picture: six lines named, the rest together
+    p.beats[2].words = []
+    for i, b in enumerate(d.beats):
+        b.words = [_hard(f"Line {i} a.", 2.0 + i / 10), _hard(f"Line {i} b.", 1.5 + i / 10, 15)]
+    noticed = rep.noticed()
+    assert len(noticed) == sc.WORDS_LINES + 1 and all("is hard to read over the picture at" in x for x in noticed[:6])
+    assert noticed[6] == ("Desktop: 4 more lines are hard to read over the picture, at #sea-1 and #sea-2: the furthest "
+                          "under its bar is 'Line 3 b.' at a contrast of 1.8 (#sea-1, 15 px type, which needs 4.5). The "
+                          "contact sheet marks their beats 'hard to read'."), noticed[6]
+    assert text.count("WCAG's ratio") == 1 and rep.text().count("WCAG's ratio") == 1   # the rule once in an answer
+    for v in (d, p):
+        for b in v.beats:
+            b.words = [_hard("Whole.", 9.0)]
+    assert rep.noticed() == [] and rep.text().count("WCAG's ratio") == 1                # ... in the measure when nothing is named
+
+
+def test_a_slide_whose_text_does_not_fit_is_named_once_with_the_beats_it_lasts(tmp_path):
+    rep = _film_report(tmp_path)
+    d = rep.visits["desktop"]
+    for b in d.beats[1:3]:
+        b.info = {"layout": "statement"}
+        b.html = {**b.html, "outside": 2, "boxes": 9}
+    d.beats[3].html = {**d.beats[3].html, "scrolls": {"sel": "article#story", "height": 240, "box": 120}}
+    assert rep.noticed() == [
+        "Desktop: the slide's text at beat #tower-1 does not fit (nor at #tower-2): 2 of its 9 line boxes lie outside "
+        "the window or the box that holds them. Shorten the lines, put fewer on the slide, or give them more room at "
+        "this size. Look at desktop_b01.jpg.",
+        "Desktop: the caption of beat #sea-1 does not fit: article#story scrolls (its content is 240 px tall in a box "
+        "of 120 px). Shorten the line, or give it more room at this size. Look at desktop_b03.jpg."]
+    assert sc.film_flags(d.beats[2]) == ["does not fit"]
 
 
 def test_a_long_film_is_sampled_evenly_with_every_scenes_last_beat():
@@ -2194,3 +2543,309 @@ def test_a_long_film_is_sampled_evenly_with_every_scenes_last_beat():
 def test_a_line_is_compared_with_the_html_text_whitespace_and_markup_aside():
     text = sc.html_text("<p>He kept<br>the <em>light</em>\n turning &amp; wrote it down.</p><script>'In a script.'</script>")
     assert sc.foreign_lines(["He kept the light turning & wrote it down.", "In a script."], text) == ["In a script."]
+
+
+# --------------------------------------------------------------------------- a deck (window.__story, slides over a stage)
+#
+# A small deck made to the second part of the story contract (CONTRACT2.md of round 9): the picture fills the frame
+# and the slides are HTML over it. Three scenes and five beats: 'open' (layout title: an h1 and one beat), 'claim'
+# (layout statement: a kicker and two beats, the second added to the first) and 'foot' (layout caption: one beat's
+# line at a time). info() gives layout, form 'deck' and theme 'paper'. The picture is the film page's, one block per
+# beat, moved by p and coloured by t, in the upper right and clear of the words. Some things are there to be got
+# right by the check and not by the page: a beat's lines come in by a CSS transition, the second 80 ms after the
+# first, which go(..., { settle: true }) does not cut short (half a second in a deck; twenty here, so that on no
+# machine can it run out by itself before the check looks); the kicker glows in its own colour, a shadow that must
+# not count against it; the title's colour is written in oklch() and the lede's is a color-mix(), which the browser
+# does not hand back as rgb(); the title has `transition: all`, so its letters' fill fades where the check takes it
+# away; and the strip's mark lies over the picture without being the story's text. The hook itself (find, play, go,
+# at, advance, back, the key and the hash) is the film page's. MODE changes one thing:
+#   'low'      scene 'claim' draws a bright block under the right half of its first line;
+#   'scrim'    the same, and the scene's words lie on a scrim in the page's paper;
+#   'words'    the second beat of 'claim' leaves the picture as it was: a slide gains a line;
+#   'caption'  the second beat of 'foot' leaves the picture as it was: only the caption changes;
+#   'nothing'  the second beat of 'claim' has no line (it is marked silent) and leaves the picture as it was;
+#   'tall'     the slides stand on the frame's lower edge and each beat is two fifths of the frame tall: the second
+#              beat of 'claim' pushes the scene's kicker out of the top;
+#   'pulse'    the headings never come to rest: a script sets their opacity and their place in every frame (two
+#              sawtooths of 1.1 s and 0.7 s, so that no two looks less than seven seconds apart see the same).
+_HOOK_JS = _FILM_PAGE[_FILM_PAGE.index("const find = (id, b) => {"):_FILM_PAGE.index("</script>")]
+_DECK_PAGE = """<!doctype html>
+<html lang="en" data-story-theme="paper"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud</title>
+<style>html,body{margin:0;background:#0d1014;color:#f4f1e8;font:18px/1.25 sans-serif}
+.deck-on,.deck-on body{height:100%;overflow:hidden}
+#picture{display:none}
+.deck-on #picture{display:block;position:fixed;left:0;top:0;right:0;bottom:0}
+#stage{width:100%;height:100%;display:block}
+.deck-on .strip{position:fixed;left:16px;top:10px;z-index:2;font-size:12px;letter-spacing:0.3em}
+.deck-on #story section{display:none}
+.deck-on #story section.on{display:block;position:fixed;z-index:1;left:6%;top:55%;width:80%}
+.deck-on #story section[data-layout=caption].on{top:auto;bottom:4%}
+.deck-on.scrim #story section.on{background:rgba(13,16,20,0.86);padding:12px 16px;margin:-12px -16px}
+.deck-on.tall #story section.on{top:auto;bottom:10%}.deck-on.tall [data-beat]{padding-bottom:40vh}
+.deck-on [data-beat]{display:none}.deck-on [data-beat].up{display:block}
+.deck-on [data-beat] > p{opacity:0;transform:translateY(0.4em);transition:opacity 20s,transform 20s}
+.deck-on [data-beat] > p + p{transition-delay:80ms}
+.deck-on [data-beat].in > p{opacity:1;transform:none}
+.deck-on aside[data-notes]{display:none}
+aside[data-notes]{font-size:12px;opacity:0.7}
+h1{font-size:min(56px,9vw);margin:0 0 0.2em;color:oklch(0.96 0.012 95);transition:all 20s}
+h2{font:bold 15px sans-serif;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 0.4em;
+   text-shadow:0 0 6px #f4f1e8,0 0 12px #f4f1e8}
+p{font-size:min(44px,7vw);margin:0 0 0.15em}
+p.lede,[data-layout=caption] p{font-size:22px}
+p.lede{color:color-mix(in srgb,#f4f1e8 90%,#0d1014)}
+@media (prefers-reduced-motion: reduce){.deck-on [data-beat] > p{transition:none}}</style></head>
+<body><header class="strip"><span class="mark">CLOUD</span></header>
+<main class="picture" id="picture"><canvas id="stage" aria-hidden="true"></canvas></main>
+<article id="story">
+<section data-scene="open" data-layout="title"><h1>How heavy is a cloud?</h1>
+<div data-beat><p class="lede">A short talk with one cloud in it.</p></div></section>
+<section data-scene="claim" data-layout="statement"><h2>What it weighs</h2>
+<div data-beat><p>It looks like nothing at all.</p></div>
+<div data-beat><p>500 tonnes.</p><aside data-notes>Pause before the number.</aside></div></section>
+<section data-scene="foot" data-layout="caption"><h2>Look up</h2>
+<div data-beat><p>Held up by a breeze.</p></div>
+<div data-beat><p>Every fair day.</p></div></section>
+</article>
+<script type="module">
+const FAULT = 'none', MODE = 'none';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas = document.getElementById('stage');
+const gl = canvas.getContext('webgl2');
+const sections = [...document.querySelectorAll('section[data-scene]')];
+const scenes = sections.map((s) => ({ id: s.dataset.scene, title: s.querySelector('h1,h2').textContent,
+                                      beats: s.querySelectorAll('[data-beat]').length }));
+const el = (si, b) => sections[si].querySelectorAll('[data-beat]')[b];
+const lines = (si, b) => [...el(si, b).querySelectorAll('p')].map((p) => p.textContent);
+const S = { si: 0, b: 0, p: 1, t0: performance.now(), tHeld: 0, playing: false };
+let draw = () => {};
+if (gl) {
+  document.documentElement.classList.add('deck-on');
+  if (MODE === 'scrim' || MODE === 'tall') document.documentElement.classList.add(MODE);
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, '#version 300 es\\nin vec2 q; void main(){ gl_Position = vec4(q, 0.0, 1.0); }'));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, '#version 300 es\\nprecision mediump float; uniform vec3 col; out vec4 o; void main(){ o = vec4(col, 1.0); }'));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const col = gl.getUniformLocation(prog, 'col');
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; gl.viewport(0, 0, canvas.width, canvas.height);
+  const block = (x, y, w, h, r, g, b) => {
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([x, y, x + w, y, x + w, y + h, x, y, x + w, y + h, x, y + h]), gl.STATIC_DRAW);
+    gl.uniform3f(col, r, g, b);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  };
+  draw = (si, b, p, t) => {
+    gl.clearColor(0.05, 0.06, 0.08, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const id = scenes[si].id;
+    // the picture holds where the mode says a beat changes only the words
+    if ((MODE === 'words' || MODE === 'nothing') && id === 'claim' && b === 1) { b = 0; p = 1; }
+    if (MODE === 'caption' && id === 'foot' && b === 1) { b = 0; p = 1; }
+    const k = 0.6 + 0.3 * Math.sin(t);
+    block(0.1 + 0.12 * b + 0.3 * (1 - p), 0.15 + 0.1 * si, 0.55 - 0.1 * b, 0.6 - 0.1 * si,
+          k * [0.9, 0.3, 0.4][si], k * [0.6, 0.8, 0.5][si], k * [0.3, 0.5, 0.9][si]);
+    // at 1440 x 900: x 450 to 800 and y 470 to 680, under the right half of the scene's first line and of no other
+    if ((MODE === 'low' || MODE === 'scrim') && id === 'claim') block(-0.375, -0.511, 0.486, 0.467, 0.93, 0.9, 0.85);
+  };
+}
+const now = () => (reduced ? S.tHeld : S.tHeld + (performance.now() - S.t0) / 1000);
+const show = (si, b) => {
+  S.si = si; S.b = b;
+  const slide = sections[si].dataset.layout !== 'caption';
+  sections.forEach((s, i) => s.classList.toggle('on', i === si));
+  document.querySelectorAll('[data-beat]').forEach((e) => e.classList.remove('up', 'in'));
+  // a slide keeps the beats before this one up, whole; a caption shows this beat's lines alone
+  sections[si].querySelectorAll('[data-beat]').forEach((e, i) => {
+    if (i === b || (slide && i < b)) e.classList.add('up');
+    if (slide && i < b) e.classList.add('in');
+  });
+  void el(si, b).offsetWidth;  // the lines' first style, which they come in from
+  el(si, b).classList.add('in');
+  history.replaceState(null, '', '#' + scenes[si].id + '-' + (b + 1));
+};
+const info = () => ({ scene: scenes[S.si].id, beat: S.b, beats: scenes[S.si].beats, title: scenes[S.si].title,
+  lines: lines(S.si, S.b), playing: S.playing, cut: null, auto: false, place: 'under',
+  layout: sections[S.si].dataset.layout, form: 'deck', theme: document.documentElement.dataset.storyTheme,
+  notes: (el(S.si, S.b).querySelector('aside[data-notes]') || { textContent: '' }).textContent });
+if (MODE === 'pulse' && gl) {
+  const pulse = (ms) => {
+    for (const h of document.querySelectorAll('#story h1, #story h2')) {
+      h.style.opacity = String(0.6 + 0.35 * ((ms % 1100) / 1100));
+      h.style.transform = 'translateY(' + (30 * ((ms % 700) / 700)).toFixed(1) + 'px)';
+    }
+    requestAnimationFrame(pulse);
+  };
+  requestAnimationFrame(pulse);
+}
+""" + _HOOK_JS.replace("title: 'Lamp'", "title: 'Cloud'") + "</script></body></html>\n"
+
+
+def _deck(tmp_path: Path, mode: str = "none") -> Path:
+    root = tmp_path / f"deck-{mode}"
+    root.mkdir(parents=True)
+    page = _DECK_PAGE.replace("MODE = 'none';", f"MODE = '{mode}';")
+    assert "title: 'Cloud'" in page and "go(id, b, { settle = true } = {})" in page  # the film page's hook, renamed
+    if mode == "nothing":
+        page = page.replace("<div data-beat><p>500 tonnes.</p>", "<div data-beat data-silent>")
+    (root / "index.html").write_text(page)
+    return root
+
+
+def _deck_check(tmp_path: Path, mode: str = "none", **kw) -> sc.SiteReport:
+    kw.setdefault("sizes", ("desktop",))
+    kw.setdefault("variants", ())
+    return sc.check_site(str(_deck(tmp_path, mode)), out_dir=tmp_path / f"out-{mode}", **kw)
+
+
+def _words(v: sc.Visit) -> dict[str, dict[str, dict]]:
+    """A visit's lines over the picture, by beat and by text."""
+    return {sc._beat_name(b): {w["text"]: w for w in b.words or []} for b in v.beats}
+
+
+@pytest.mark.browser
+def test_a_well_made_deck_is_read_slide_by_slide_and_nothing_is_named(tmp_path):
+    t0 = time.monotonic()
+    r = _deck_check(tmp_path, sizes=("desktop", "phone"), variants=("reduced", "nowebgl"))
+    text = r.text()
+    print(f"\nwall {time.monotonic() - t0:.1f} s\n{text}")
+    assert text.startswith("STORY CHECKED in ") and r.broken() == [] and r.noticed() == [], text
+    # the form and the theme, from info(), in the first measure
+    assert text.split("Measures:\n")[1].startswith("- Story: 'Cloud', a deck in the theme 'paper', treatment 'grade', 3 "
+                                                   "scenes and 5 beats; ready "), text
+    assert r.film["form"] == "deck" and r.film["theme"] == "paper"
+    assert "Beats that change only the words" not in text and "last beat that changes" not in text
+    for name in ("desktop", "phone"):
+        v = r.visits[name]
+        assert [(b.scene, b.beat, b.info["layout"]) for b in v.beats] == [
+            ("open", 0, "title"), ("claim", 0, "statement"), ("claim", 1, "statement"), ("foot", 0, "caption"),
+            ("foot", 1, "caption")]
+        assert all(b.change is None if b.first else b.change > 0.005 for b in v.beats), [b.change for b in v.beats]
+        # each beat's lines were coming in (opacity and transform of one <p>): the check ended that and read them whole
+        assert all(b.html["rest"]["ended"] >= 2 and b.html["rest"]["settled"] and b.html["shown"] for b in v.beats), [
+            b.html["rest"] for b in v.beats]
+        assert all(not b.html["outside"] and not b.html["scrolls"] for b in v.beats)
+        words = _words(v)
+        assert {k: sorted(per) for k, per in words.items()} == {
+            "#open-1": ["A short talk with one cloud in it.", "How heavy is a cloud?"],
+            "#claim-1": ["It looks like nothing at all.", "What it weighs"],
+            "#claim-2": ["500 tonnes.", "It looks like nothing at all.", "What it weighs"],  # a slide's beats add up
+            "#foot-1": ["Held up by a breeze.", "Look up"],
+            "#foot-2": ["Every fair day.", "Look up"]}, words
+        # light words on the dark ground, the glowing kicker too: its glow is not a ground it has to stand out from
+        assert all(w["ratio"] > 12 and w["light"] for per in words.values() for w in per.values()), words
+        assert words["#claim-2"]["500 tonnes."]["own"] and not words["#claim-2"]["It looks like nothing at all."]["own"]
+        kicker = words["#claim-1"]["What it weighs"]
+        assert (kicker["px"], kicker["bold"], kicker["need"]) == (15, True, 4.5), kicker
+    d = _words(r.visits["desktop"])
+    assert (d["#claim-1"]["It looks like nothing at all."]["px"], d["#claim-1"]["It looks like nothing at all."]["need"]) == (44, 3)
+    assert d["#open-1"]["A short talk with one cloud in it."]["need"] == 4.5       # 22 px, not bold
+    assert ("- Words over the picture, their contrast with what is drawn behind them (WCAG's ratio; 3 for type of 24 px "
+            "and up or bold of 19 px and up, 4.5 for smaller type): desktop 8 lines, the nearest to its bar '") in text
+    for part in ("- Desktop 1440x900: 5 of 5 beats photographed", "- Phone 390x844: 5 of 5 beats photographed",
+                 "- Motion while a beat plays (desktop, at each scene's last beat; ", "- The right arrow key goes from "
+                 "#open-1 to #claim-1.", "- Opened at #claim-2, the story shows that beat.", "- With reduce motion set "
+                 "the page asks matchMedia and has a CSS rule; beat #claim-2, reached with advance(), is shown finished "
+                 "at once", "- Without WebGL: no errors; window.__story.mode is 'no-webgl'", "5 of the 5 beats with "
+                 "lines show them as text"):
+        assert part in text, (part, text)
+    record = json.loads((tmp_path / "out-none" / "report.json").read_text())
+    assert record["film"]["form"] == "deck" and len(record["visits"]["phone"]["beats"][2]["words"]) == 3
+
+
+@pytest.mark.browser
+def test_words_over_a_bright_part_of_the_picture_are_named_and_the_same_words_on_a_scrim_are_not(tmp_path):
+    r = _deck_check(tmp_path, "low")
+    assert r.broken() == [] and len(r.noticed()) == 1, r.text()
+    (line,) = r.noticed()
+    # the beat, the line's first words, the size it was read at, the ratio and what it needs, then what to do
+    assert line.startswith("Desktop: 'It looks like nothing at all.' is hard to read over the picture at #claim-1 and "
+                           "#claim-2: 44 px type at a contrast of 1.1 with what is drawn behind it at worst (#claim-"), line
+    assert ("), where it needs 3 (WCAG's ratio; 3 for type of 24 px and up or bold of 19 px and up, 4.5 for smaller "
+            "type). Move the words over a darker or quieter part of the picture, or lay a scrim in the theme's paper "
+            "behind them. Look at desktop_b0") in line, line
+    low = _words(r.visits["desktop"])
+    assert low["#claim-1"]["It looks like nothing at all."]["ratio"] < 1.3
+    # the lines beside it, which the bright block does not reach, are read and are not named
+    assert low["#claim-2"]["500 tonnes."]["ratio"] > 12 and low["#claim-1"]["What it weighs"]["ratio"] > 12, low
+    assert "hard to read" in sc.film_flags(r.visits["desktop"].beats[1]) and not sc.film_flags(r.visits["desktop"].beats[0])
+    r = _deck_check(tmp_path, "scrim")
+    assert r.broken() == [] and r.noticed() == [], r.text()
+    on = _words(r.visits["desktop"])
+    # the same block under the same words: the contrast is with the scrim over it, which the canvas alone does not show
+    assert 7 < on["#claim-1"]["It looks like nothing at all."]["ratio"] < low["#claim-2"]["500 tonnes."]["ratio"], on
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("mode", ["words", "caption", "nothing"])
+def test_a_beat_that_only_adds_words_is_counted_on_a_slide_and_named_under_a_caption(tmp_path, mode):
+    r = _deck_check(tmp_path, mode)
+    text = r.text()
+    d = r.visits["desktop"]
+    assert r.broken() == [], text
+    held = {"words": 2, "caption": 4, "nothing": 2}[mode]
+    assert [b.order for b in d.beats if b.change is not None and b.change < sc.FILM_SAME] == [held], [b.change for b in d.beats]
+    if mode == "words":       # a statement scene: a measure, and nothing a viewer would notice
+        assert r.noticed() == [], text
+        assert ("- Beats that change only the words (a slide gains a line and its picture holds, which a deck may do): "
+                "#claim-2.") in text
+        # whether the scene moves is read at the beat that changes its picture, not at the one that holds it
+        assert [(m["beat"], m["last"]) for m in d.film["moves"]] == [("#open-1", True), ("#claim-1", False), ("#foot-2", True)]
+        assert all(m["p"] > 0.01 and m["t"] > 0.01 for m in d.film["moves"]), d.film["moves"]
+        assert "- Motion while a beat plays (desktop, at each scene's last beat that changes its picture; " in text
+        assert not sc.film_flags(d.beats[2], "words")
+    elif mode == "caption":   # a caption scene: named, as it was for a film
+        (line,) = r.noticed()
+        assert line.startswith("Desktop: beat #foot-2 shows the same picture as #foot-1 before it (0% of the picture "
+                               "differs) and only its caption changes: under a caption a beat must change something "
+                               "the viewer can see in the picture"), line
+        assert "Beats that change only the words" not in text
+    else:                     # neither words nor picture: a fault in every layout
+        (line,) = r.noticed()
+        assert line == ("Desktop: beat #claim-2 changes nothing: it shows the same picture as #claim-1 before it (0% of "
+                        "the picture differs) and no new words. A beat must change something the viewer can see: the "
+                        "picture (a camera move, an object, the light) or, on a slide, the words. Look at "
+                        "desktop_b01.jpg and desktop_b02.jpg."), line
+        assert "Beats that change only the words" not in text
+
+
+@pytest.mark.browser
+def test_a_slide_that_outgrows_the_frame_is_named_at_the_beat_where_a_line_leaves_it(tmp_path):
+    """The fit of the text is read for every layout: on a slide the lines of the beats before stay up, and the line
+    the frame cuts may be one of those (here the kicker, which the scene's second beat pushes out of the top)."""
+    r = _deck_check(tmp_path, "tall")
+    d = r.visits["desktop"]
+    assert r.broken() == [] and len(r.noticed()) == 1, r.text()
+    assert re.fullmatch(r"Desktop: the slide's text at beat #claim-2 does not fit: [12] of its 3 line boxes lie outside "
+                        r"the window or the box that holds them\. Shorten the lines, put fewer on the slide, or give "
+                        r"them more room at this size\. Look at desktop_b02\.jpg\.", r.noticed()[0]), r.noticed()[0]
+    assert [bool(b.html["outside"]) for b in d.beats] == [False, False, True, False, False]
+    assert d.beats[2].html["shown"] and sc.film_flags(d.beats[2]) == ["does not fit"]
+    # the line that is still in the frame is read against the picture; the one outside it has no picture under it
+    assert sorted(_words(d)["#claim-2"]) == ["500 tonnes.", "It looks like nothing at all."]
+
+
+@pytest.mark.browser
+def test_text_that_never_rests_and_a_reading_out_of_time_cost_no_more_than_their_bounds(tmp_path, monkeypatch):
+    """Two bounds on what the words may cost a long story: a page whose text is still changing after its wait is
+    given the wait at three beats and then read as it is (48 waits would be 72 s), and once the reading's time is
+    used up the beats that follow are photographed without it, which the measure says."""
+    monkeypatch.setattr(sc, "WORDS_S", 0.01)  # used up by the first beat's reading
+    r = _deck_check(tmp_path, "pulse")
+    d = r.visits["desktop"]
+    assert r.broken() == [] and r.noticed() == [], r.text()
+    rests = [b.html["rest"] for b in d.beats]
+    assert [x["settled"] for x in rests] == [False] * 5, rests
+    assert all(x["waited_ms"] >= 1400 for x in rests[:sc.WORDS_RESTLESS]), rests
+    assert all(x["waited_ms"] < 500 for x in rests[sc.WORDS_RESTLESS:]), rests
+    assert sorted(_words(d)["#open-1"]) == ["A short talk with one cloud in it.", "How heavy is a cloud?"]
+    assert [b.words for b in d.beats[1:]] == [None] * 4 and d.film["words_unread"] == 4
+    assert all(b.frame and b.html["shown"] for b in d.beats)            # every beat was photographed all the same
+    assert ("- Words over the picture, their contrast with what is drawn behind them (WCAG's ratio; 3 for type of 24 px "
+            "and up or bold of 19 px and up, 4.5 for smaller type): desktop 2 lines, the nearest to its bar '") in r.text()
+    assert ", and 4 beats with words over the picture not read (the 0 s the reading has were used up)." in r.text()
+    # ... and the answer says which frames show text that had not come to rest
+    assert (" The words were still changing when photographed at #open-1, #claim-1, #claim-2, #foot-1 and 1 more: those "
+            "frames may show them on their way in (go(id, beat, { settle: true }) is to show a beat's lines whole at "
+            "once).") in r.text()
